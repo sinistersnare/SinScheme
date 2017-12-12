@@ -1,3 +1,18 @@
+##### Project Related#####
+
+build/
+
+##### Racket Related #####
+*.rkt~
+*.rkt.bak
+\#*.rkt#
+\#*.rkt#*#
+*.dep
+*.zo
+
+compiled/
+
+
 ##### C++ Related #####
 
 # Prerequisites
@@ -33,12 +48,6 @@
 *.out
 *.app
 
-
-##### Racket Related #####
-
-*.rkt~
-*.rkt#*
-.#*.rkt
 
 ##### Mac related #####
 # General

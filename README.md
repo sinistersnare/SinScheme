@@ -26,6 +26,19 @@ Now you have an executable that you should be able to run:
 
 Enjoy!
 
+We also have a tests.rkt file, you can interact with as so:
+
+`$ racket tests.rkt ` will tell you the tests that you can run.
+`$ racket tests.rkt TESTNAME` will run the test TESTNAME
+`$ racket tests.rkt all` will run all tests.
+
+There is currently something going on with the order tests,
+making it consume about a Gig of memory for some reason,
+it also takes forever to run. Good luck with that.
+
+If you would like to add a test, please add one to the `tests/` directory.
+Test files end with `.scm` or `.sinscm`.
+
 
 ## Documentation ##
 

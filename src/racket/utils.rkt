@@ -609,7 +609,7 @@
   (when (not recent-header)
         (set! recent-header #t)
         ;(system (string-append clang++-path " header.cpp " " -I " gc-include-path " -S -emit-llvm -o header.ll"))
-        (system (string-append clang++-path " header.cpp " " -S -emit-llvm -o header.ll")))
+        (system (string-append clang++-path " src/cpp/header.cpp " " -S -emit-llvm -o header.ll")))
   (define header-str (read-string 299999 (open-input-file "header.ll" #:mode 'text)))
   (define llvm (string-append header-str "\n\n;;;;;;\n\n" llvm-str))
   (display llvm (open-output-file "combined.ll" #:exists 'replace))

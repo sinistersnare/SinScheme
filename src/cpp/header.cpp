@@ -239,7 +239,12 @@ u64 prim_print_aux(u64 v)
     }
     else if ((v&7) == STR_TAG)
     {   // needs to handle escaping to be correct
-        printf("\"%s\"", DECODE_STR(v));
+        char* str = DECODE_STR(v);
+        if (str[0] != 0 && str[1] == 0 && str[0] == 10) {
+            printf("\n");
+        } else {
+            printf("\"%s\"", DECODE_STR(v));
+        }
     }
     else if ((v&7) == SYM_TAG)
     {   // needs to handle escaping to be correct
@@ -267,8 +272,7 @@ u64 prim_print_aux(u64 v)
 
 u64 prim_print(u64 v)
 {
-    if (v == V_VOID)
-        printf("#<void>");
+    if (v == V_VOID) {}
     else if (v == V_NULL)
         printf("'()");
     else if ((v&7) == CLO_TAG)
@@ -288,7 +292,12 @@ u64 prim_print(u64 v)
     }
     else if ((v&7) == STR_TAG)
     {   // needs to handle escaping to be correct
-        printf("\"%s\"", DECODE_STR(v));
+        char* str = DECODE_STR(v);
+        if (str[0] != 0 && str[1] == 0 && str[0] == 10) {
+            printf("\n");
+        } else {
+            printf("\"%s\"", DECODE_STR(v));
+        }
     }
     else if ((v&7) == SYM_TAG)
     {   // needs to handle escaping to be correct

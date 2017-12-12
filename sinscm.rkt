@@ -39,7 +39,10 @@
     (if (file-exists? clang++-path-submit-server)
         clang++-path-submit-server
         "clang++")))
-(define gen-header-name (string-append (symbol->string (gensym 'generated_header)) ".ll"))
+
+(when (not (directory-exists? "build")) (make-directory "build"))
+
+(define gen-header-name (string-append "build/" (symbol->string (gensym 'generated_header)) ".ll"))
 
 (system (string-append clang++-path " ./src/cpp/header.cpp " " -S -emit-llvm -o " gen-header-name))
 
