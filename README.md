@@ -43,10 +43,22 @@ Test files end with `.scm` or `.sinscm`.
 ## Documentation ##
 
 There is docs in the `docs/` folder,
-describing the primitive functions that this implementation implements.
-It also discusses other things such as language forms,
-and how to form a correct Sin Scheme program.
+currently there is a `runtime-error.md`, `primitives.md`, and a `language.md`,
 
+Hopefully there will be more when I come to it, and then I will
+hopefully remember to delete this run on sentence.
+
+`runtime-error.md` documents a subset of the runtime errors
+that this language supports
+
+`primitives.md` documents each primitive that this language supports.
+
+`language.md` provides a general guide of the language.
+
+The documentation is hopefully good, and will provide examples of use and
+some edge cases.
+
+If you would like to contribute documentation feel free :)
 
 ## TODO: ##
 

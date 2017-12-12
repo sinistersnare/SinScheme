@@ -4,6 +4,13 @@
 
 (require racket/cmdline)
 
+; TODO: We can compile the LLVM code with clang++ if the user wants
+; maybe if we have some param (define outputtypeparam (make-parameter 'infer))
+; and if its infer then we guess from the outputfileparams extension
+; if its .ll then compile llvm, if its something else probably binary?
+; Or just make an output type be specified, 'llvm' or 'exe'
+
+
 (define outfileparam (make-parameter null))
 (define infileparam (make-parameter null))
 (define sourcecodeparam (make-parameter null))

@@ -13,7 +13,6 @@
 (require "closure-convert.rkt") ; closure-convert, proc->llvm
 (require "utils.rkt")           ; read-begin, simplify-ir
 
-
 ; compile-program: Port X Port -> void
 ; This function will read from the port a SinScheme program and output the emitted LLVM code to the outport.
 ; compile-program will NOT close either port, so you must close it after the function returns.
@@ -32,7 +31,6 @@
   (proc->llvm (closure-convert
                (cps-convert (anf-convert (alphatize (assignment-convert
                                                                      (simplify-ir (desugar (top-level scm))))))))))
-
 
 
 

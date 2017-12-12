@@ -1,5 +1,1 @@
-(define (println v) (print v) (print "\n"))
-(define a 2)
-(define b 3)
-(println (+ a b)) 
-"Hi, Audrey!"
+(/ 1 2 3 0)

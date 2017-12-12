@@ -217,20 +217,19 @@ u64 const_init_symbol(const char* s)
 
 ///// effectful prims:
 
+u64 print_cons(u64);
 
 u64 prim_print_aux(u64 v)
 {
-    if (v == V_NULL)
+    if (v == V_VOID) {}
+    else if (v == V_NULL)
         printf("()");
     else if ((v&7) == CLO_TAG)
         printf("#<procedure>");
     else if ((v&7) == CONS_TAG)
     {
-        u64* p = DECODE_CONS(v);
         printf("(");
-        prim_print_aux(p[0]);
-        printf(" . ");
-        prim_print_aux(p[1]);
+        print_cons(v);
         printf(")");
     }
     else if ((v&7) == INT_TAG)
@@ -239,12 +238,13 @@ u64 prim_print_aux(u64 v)
     }
     else if ((v&7) == STR_TAG)
     {   // needs to handle escaping to be correct
-        char* str = DECODE_STR(v);
-        if (str[0] != 0 && str[1] == 0 && str[0] == 10) {
-            printf("\n");
-        } else {
-            printf("\"%s\"", DECODE_STR(v));
-        }
+        printf("%s", DECODE_STR(v));
+        // char* str = DECODE_STR(v);
+        // if (str[0] != 0 && str[1] == 0 && str[0] == 10) {
+        //     printf("\n");
+        // } else {
+        //     printf("\"%s\"", DECODE_STR(v));
+        // }
     }
     else if ((v&7) == SYM_TAG)
     {   // needs to handle escaping to be correct
@@ -279,12 +279,16 @@ u64 prim_print(u64 v)
         printf("#<procedure>");
     else if ((v&7) == CONS_TAG)
     {
-        u64* p = (u64*)(v&(7ULL^MASK64));
-        printf("'(");
-        prim_print_aux(p[0]);
-        printf(" . ");
-        prim_print_aux(p[1]);
+        printf("(");
+        print_cons(v);
         printf(")");
+
+        // u64* p = DECODE_CONS(v);
+        // printf("'(");
+        // prim_print_aux(p[0]);
+        // printf(" . ");
+        // prim_print_aux(p[1]);
+        // printf(")");
     }
     else if ((v&7) == INT_TAG)
     {
@@ -292,12 +296,13 @@ u64 prim_print(u64 v)
     }
     else if ((v&7) == STR_TAG)
     {   // needs to handle escaping to be correct
-        char* str = DECODE_STR(v);
-        if (str[0] != 0 && str[1] == 0 && str[0] == 10) {
-            printf("\n");
-        } else {
-            printf("\"%s\"", DECODE_STR(v));
-        }
+        printf("%s", DECODE_STR(v));
+        // char* str = DECODE_STR(v);
+        // if (str[0] != 0 && str[1] == 0 && str[0] == 10) {
+        //     printf("\n");
+        // } else {
+        //     printf("\"%s\"", DECODE_STR(v));
+        // }
     }
     else if ((v&7) == SYM_TAG)
     {   // needs to handle escaping to be correct
@@ -322,6 +327,27 @@ u64 prim_print(u64 v)
     //...
     return V_VOID;
 }
+
+
+u64 print_cons(u64 v) {
+    u64* p = DECODE_CONS(v);
+    u64 car = p[0];
+    u64 cdr = p[1];
+    prim_print_aux(car);
+
+    if (cdr == V_VOID) {}
+    else if (cdr == V_NULL) {}
+    else if ((cdr&7) == CONS_TAG) {
+        printf(" ");
+        print_cons(cdr);
+    } else {
+        printf(" . ");
+        prim_print_aux(cdr);
+    }
+
+    return V_VOID;
+}
+
 GEN_EXPECT1ARGLIST(applyprim_print,prim_print)
 
 
@@ -381,7 +407,7 @@ GEN_EXPECT2ARGLIST(applyprim_vector_45ref, prim_vector_45ref)
 u64 prim_vector_45set_33(u64 a, u64 i, u64 v)
 {
     ASSERT_TAG(i, INT_TAG, "second argument to vector-ref must be an integer")
-    ASSERT_TAG(a, OTHER_TAG, "first argument to vector-ref must be an integer")
+    ASSERT_TAG(a, OTHER_TAG, "first argument to vector-ref must be a vector")
 
     if ((((u64*)DECODE_OTHER(a))[0]&7) != VECTOR_OTHERTAG)
         fatal_err("vector-ref not given a properly formed vector");

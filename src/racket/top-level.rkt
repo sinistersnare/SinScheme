@@ -7,6 +7,11 @@
 ; By Davis Silverman
 
 (define (top-level e)
+  (define (layout-prim-div num denoms)
+    (define d-names (map (lambda (_) (gensym 'denominator)) denoms))
+    (define bindings (map (lambda (denom name) `(,name ,(T denom))) denoms d-names))
+    (define conds (map (lambda (d-name) `(eq? ,d-name '0)) d-names))
+    `(let ,bindings (if (or ,@conds) (raise '(exception div-by-0 (/ ,num ,@denoms))) (/ ,(T num) ,@d-names))))
   (define (layout-bodies bodies)
     (define (get-bindings bodies)
       (match bodies
@@ -193,6 +198,10 @@
        ; (displayln (format "got dat: ~s" dat))
        e]
       [`(quasiquote ,qdat) (layout-qq qdat 1)]
+      [`(/ ,numerator . ,denominators)
+       (if (empty? denominators)
+           `(/ ,numerator)
+           (layout-prim-div numerator denominators))]
       [(? prim? op) op] ;; HELP does this work? TEST
       [(? symbol? x) x] ;; HELP does this work? TEST
       [(? natural? nat) `',nat] ;; HELP does this work?

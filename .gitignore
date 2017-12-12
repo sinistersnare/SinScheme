@@ -10,7 +10,7 @@ build/
 *.dep
 *.zo
 
-compiled/
+compiled
 
 
 ##### C++ Related #####

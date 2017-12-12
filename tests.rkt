@@ -40,7 +40,6 @@
 (define (path->test p)
   (define filename (last (string-split (path->string p) "/")))
   `(,(string-append (last (string-split (string-join (drop-right (string-split (path->string p) ".") 1) ".") "/")))
-    ,'public
     ,(make-test (with-input-from-file p read-begin #:mode 'text))))
 
 (define tests (map path->test tests-list))
@@ -52,7 +51,7 @@
      (define correct-count
        (foldl (lambda (testcase count)
                 (match testcase
-                  [(list test-name _ exec)
+                  [(list test-name exec)
                    (define exec-result
                      (with-handlers ([exn:fail? identity])
                        (exec)))
@@ -112,12 +111,12 @@
     [(list test-name)
      #:when (assoc test-name tests)
      (match (assoc test-name tests)
-       [(list _ _ exec)
+       [(list name exec)
         (define exec-result
           (with-handlers ([exn:fail? identity])
             (exec)))
         (define passed (eq? exec-result #t))
-        (displayln (if passed "Test passed!" "Test failed!"))
+        (displayln (if passed (format "Test \"~a\" passed!" name) "Test failed!"))
         (unless is-repl
           (exit (if (eq? exec-result #t) 0 1)))])]
     [else
