@@ -146,7 +146,7 @@
        (define body++ (cdr (foldl (lambda (x count+body)
                                     (match-define (cons cnt bdy) count+body)
                                     (cons (+ 1 cnt) `(let ([,x (env-ref ,envx ,cnt)]) ,bdy)))
-                                  (cons 1 body+)
+                                  (cons 0 body+) ; 0 count because im better than you.
                                   ordered-env-vars)))
        `((let ([,x (make-closure ,lamx ,@ordered-env-vars)]) ,e0+)
          ,(set-remove (set-union free0+ env-vars) x)
@@ -168,6 +168,7 @@
 
 
 (define (unweirdify s) (string->symbol (c-name s)))
+
 (define (normalize-names proc)
   ; dont unweirdify op names, because they will be converted in prim-name and applyprim-name
   (match proc
@@ -200,12 +201,11 @@
 ; Walk procedures and emit llvm code as a string		
 ; (string-append "  %r0 = opcode i64 %a, %b \n"		
 ;                "  %r1 = ... \n")
-;; TODO/HELP: attributes?
-;; HELP: define attributes and call attributes need to be fastcc for tail-calls i think.
-; HELP: main probably needs to return i32.
+
+;; TODO: does `store` need an `align 8`?
 (define (proc->llvm procs)
   (define (make-args args)
-    (string-join (map (lambda (x) (format "i64 %~s" x)) args) ", "))
+    (string-join (map (lambda (x) (format "%struct.SinObj* %~s" x)) args) ", "))
   (define (ind n [level 2]) ; indent based levels, default tab level is 2.
     (make-string (* n level) #\space))
   (define (to-llvm proc globals [indent-level 0])
@@ -214,119 +214,193 @@
        (format "~adefine void @proc_~a(~a) {\n~a\n}"
                (ind indent-level) fname
                (make-args xs) (to-llvm e globals (add1 indent-level)))]
-      [`(let ([,x (apply-prim ,op ,xs)]) ,e) ; TODO: TEST this (becuase make-args may give wrong output).
-       (format "~a%~s = call i64 @~a(~a)\n~a"
-               (ind indent-level) x (prim-applyname op)
-               (make-args (list xs)) (to-llvm e globals indent-level))]
+      [`(let ([,x (apply-prim ,op ,arglist)]) ,e)
+       (define applyprimptr (gensym 'applyprimptr))
+       (format "~a\n~a\n~a\n~a"
+               (format "~a%~s = alloca %struct.SinObj*, align 8"
+                       (ind indent-level) applyprimptr)
+               (format "~a%~s = call %struct.SinObj* @~a(%struct.SinObj* %~s)"
+                       (ind indent-level) x (prim-applyname op) arglist)
+               (format "~astore volatile %struct.SinObj* %~s, %struct.SinObj** %~s, align 8"
+                       (ind indent-level) x applyprimptr)
+               (to-llvm e globals indent-level))]
       [`(let ([,x (prim ,op ,xs ...)]) ,e)
-       (format "~a%~s = call i64 @~a(~a)\n~a"
-               (ind indent-level) x (prim-name op)
-               (make-args xs) (to-llvm e globals indent-level))]
+       (define (layout-args args)
+         (match args
+           [(? empty?) ""]
+           [`(,single)
+            (format "%struct.SinObj* %~s" single)]
+           [`(,head . ,tail)
+            (format "%struct.SinObj* %~s, ~a" head (layout-args tail))]))
+       (define primptr (gensym 'primptr))
+       (format "~a\n~a\n~a\n~a"
+               (format "~a%~s = alloca %struct.SinObj*, align 8"
+                       (ind indent-level) primptr)
+               (format "~a%~s = call %struct.SinObj* @~a(~a)"
+                       (ind indent-level) x (prim-name op) (layout-args xs))
+               (format "~astore volatile %struct.SinObj* %~s, %struct.SinObj** %~s, align 8"
+                       (ind indent-level) x primptr)
+               (to-llvm e globals indent-level))]
       ; TODO: can const_init_string be used here AKA is there another case of string?
       ; TODO: Also void (check all const_init_*).
       [`(let ([,x '#t]) ,e)
-       (format "~a%~s = load i64, i64* @TRUE\n~a" (ind indent-level) x (to-llvm e globals indent-level))]
+       (define stackptr (gensym 'stackptr))
+       (format "~a\n~a\n~a\n~a"
+               (format "~a%~s = alloca %struct.SinObj*, align 8"
+                       (ind indent-level) stackptr)
+               (format "~a%~s = call %struct.SinObj* @const_init_true()"
+                       (ind indent-level) x)
+               (format "~astore volatile %struct.SinObj* %~s, %struct.SinObj** %~s, align 8"
+                       (ind indent-level) x stackptr)
+               (to-llvm e globals indent-level))]
       [`(let ([,x '#f]) ,e)
-       (format "~a%~s = load i64, i64* @FALSE\n~a" (ind indent-level) x (to-llvm e globals indent-level))]
-      [`(let ([,x ',(? integer? n)]) ,e)
-       (format "~a%~s = call i64 @const_init_int(i64 ~a)\n~a" (ind indent-level) x n (to-llvm e globals indent-level))]
+       (define stackptr (gensym 'stackptr))
+       (format "~a\n~a\n~a\n~a"
+               (format "~a%~s = alloca %struct.SinObj*, align 8"
+                       (ind indent-level) stackptr)
+               (format "~a%~s = call %struct.SinObj* @const_init_false()"
+                       (ind indent-level) x)
+               (format "~astore volatile %struct.SinObj* %~s, %struct.SinObj** %~s, align 8"
+                       (ind indent-level) x stackptr)
+               (to-llvm e globals indent-level))]
       [`(let ([,x '()]) ,e)
-       (format "~a%~s = load i64, i64* @NULL\n~a" (ind indent-level) x (to-llvm e globals indent-level))]
+       (define stackptr (gensym 'stackptr))
+       (format "~a\n~a\n~a\n~a"
+               (format "~a%~s = alloca %struct.SinObj*, align 8"
+                       (ind indent-level) stackptr)
+               (format "~a%~s = call %struct.SinObj* @const_init_null()"
+                       (ind indent-level) x)
+               (format "~astore volatile %struct.SinObj* %~s, %struct.SinObj** %~s, align 8"
+                       (ind indent-level) x stackptr)
+               (to-llvm e globals indent-level))]
+      [`(let ([,x ',(? integer? n)]) ,e)
+       (define stackptr (gensym 'stackptr))
+       (format "~a\n~a\n~a\n~a"
+               (format "~a%~s = alloca %struct.SinObj*, align 8"
+                       (ind indent-level) stackptr)
+               (format "~a%~s = call %struct.SinObj* @const_init_int(i64 ~a)"
+                       (ind indent-level) x n)
+               (format "~astore volatile %struct.SinObj* %~s, %struct.SinObj** %~s, align 8"
+                       (ind indent-level) x stackptr)
+               (to-llvm e globals indent-level))]
       [`(let ([,x ',(? symbol? dat)]) ,e)
        (define encoded (c-encode (symbol->string dat)))
        (define val (hash-ref globals encoded))
        (define stackregname (gensym 'stackreg))
        (define rawval (gensym 'rawsymstr))
+       (define stackptr (gensym 'stackptr))
        (if (hash-has-key? globals encoded)
-           (format "\n~a\n~a\n~a\n~a\n~a"
+           (format "~a\n~a\n~a\n~a\n~a\n~a\n~a"
+                   (format "~a%~s = alloca %struct.SinObj*, align 8"
+                           (ind indent-level) stackptr)
                    (format "~a%~s = alloca i8*, align 8" (ind indent-level) stackregname)
                    (format "~astore i8* getelementptr inbounds ([~a x i8], [~a x i8]* @~a, i32 0, i32 0), i8** %~s, align 8"
                            (ind indent-level) (enc-len encoded) (enc-len encoded) val stackregname)
                    (format "~a%~s = load i8*, i8** %~s, align 8" (ind indent-level) rawval stackregname)
-                   (format "~a%~s = call i64 @const_init_symbol(i8* %~s)" (ind indent-level) x rawval)
+                   (format "~a%~s = call %struct.SinObj* @const_init_symbol(i8* %~s)" (ind indent-level) x rawval)
+                   (format "~astore %struct.SinObj* %~s, %struct.SinObj** %~s, align 8"
+                           (ind indent-level) x stackptr)
                    (to-llvm e globals indent-level))
-           ((disp "DONT KNOW HOW TO LLVM-ENCODE:: " dat)
-            "BAD-LLVM-IR-SORRY"))] ;; maybe const_init_symbol?
+           ((disp "DONT KNOW HOW TO LLVM-ENCODE:: " dat) "BAD-LLVM-IR-SORRY"))]
       [`(let ([,x ',(? string? dat)]) ,e)
        (define encoded (c-encode dat))
        (define val (hash-ref globals encoded))
        (define stackregname (gensym 'stackreg))
        (define rawval (gensym 'rawstrstr))
+       (define stackptr (gensym 'stackptr))
        (if (hash-has-key? globals encoded)
-           (format "\n~a\n~a\n~a\n~a\n~a"
+           (format "~a\n~a\n~a\n~a\n~a\n~a\n~a"
+                   (format "~a%~s = alloca %struct.SinObj*, align 8"
+                           (ind indent-level) stackptr)
                    (format "~a%~s = alloca i8*, align 8" (ind indent-level) stackregname)
                    (format "~astore i8* getelementptr inbounds ([~a x i8], [~a x i8]* @~a, i32 0, i32 0), i8** %~s, align 8"
                            (ind indent-level) (enc-len encoded) (enc-len encoded) val stackregname)
                    (format "~a%~s = load i8*, i8** %~s, align 8" (ind indent-level) rawval stackregname)
-                   (format "~a%~s = call i64 @const_init_string(i8* %~s)" (ind indent-level) x rawval)
+                   (format "~a%~s = call %struct.SinObj* @const_init_string(i8* %~s)" (ind indent-level) x rawval)
+                   (format "~astore %struct.SinObj* %~s, %struct.SinObj** %~s, align 8"
+                           (ind indent-level) x stackptr)
                    (to-llvm e globals indent-level))
-           ((disp "DONT KNOW HOW TO LLVM-ENCODE:: " dat)
-            "BAD-LLVM-IR-SORRY"))]
+           ((disp "DONT KNOW HOW TO LLVM-ENCODE:: " dat) "BAD-LLVM-IR-SORRY"))]
+      ;; TESTME
       [`(let ([,x (env-ref ,env ,nat)]) ,e)
-       (define envptr (gensym 'envptr))
-       (define freevarloc (gensym 'freevar))
-       (format "\n~a\n~a\n~a\n~a" ; optimization, use the same envptr name inttoptr for the whole function???
-               (format "~a%~s = inttoptr i64 %~s to i64*" (ind indent-level) envptr env)
-               (format "~a%~s = getelementptr inbounds i64, i64* %~s, i64 ~a" (ind indent-level) freevarloc envptr nat)
-               (format "~a%~s = load i64, i64* %~s, align 8" (ind indent-level) x freevarloc)
-               (to-llvm e globals indent-level))] ;;HELP: is nat quoting right?
-      [`(let ([,x (make-closure ,fname ,freevars ...)]) ,ebody)
-       (define (layout-freevars indent-level cloname freevars pos)
-         (define (layout indent-level cloname freevars pos)
-           (match freevars
-             [(? empty?) (format "~a; no more free vars" (ind indent-level))]
-             [`(,head . ,tail)
-              (define freevarloc (gensym 'freevarloc))
-              (format "~a\n~a\n~a"
-                      (format "~a%~s = getelementptr inbounds i64, i64* %~s, i64 ~a" (ind indent-level) freevarloc cloname pos)
-                      (format "~astore i64 %~s, i64* %~s" (ind indent-level) head freevarloc)
-                      (layout-freevars indent-level cloname tail (add1 pos)))]))
-         (if (empty? freevars)
-             ""
-             (string-append "\n" (layout indent-level cloname freevars pos))))
-       (define cloname (gensym 'cloobject))
-       (define funptrloc (gensym 'funptrloc))
+       (define stackptr (gensym 'stackptr))
+       (format "~a\n~a\n~a\n~a"
+               (format "~a%~s = alloca %struct.SinObj*, align 8"
+                       (ind indent-level) stackptr)
+               (format "~a%~s = call %struct.SinObj* @closure_env_get(%struct.SinObj* %~s, i64 ~s)"
+                       (ind indent-level) x env nat)
+               (format "~astore %struct.SinObj* %~s, %struct.SinObj** %~s, align 8"
+                       (ind indent-level) x stackptr)
+               (to-llvm e globals indent-level))]
+      ;; TESTME
+      [`(let ([,x (make-closure ,fptrname ,freevars ...)]) ,e)
+       (define (place-freevars freevars pos)
+         (match freevars
+           [(? empty?) ""]
+           [`(,head . ,tail)
+            (format "~a\n~a"
+                    ; place each free variable in order in the closure.
+                    (format "~acall void @closure_place_freevar(%struct.SinObj* %~s, %struct.SinObj* %~s, i64 ~s)"
+                            (ind indent-level) x head pos)
+                    (place-freevars tail (add1 pos)))]))
+       (define stackptr (gensym 'stackptr))
        (define fintname (gensym 'fintname))
-       (format "\n~a~a\n~a\n~a\n~a\n~a\n~a" ; ~a~a because layout-freevars places its own \n
-               (format "~a%~s = call i64* @alloc(i64 ~a)" (ind indent-level) cloname (* 8 (add1 (length freevars)))) ; add1 because need room for fname too.
-               (layout-freevars indent-level cloname freevars 1)
-               (format "~a%~s = getelementptr inbounds i64, i64* %~s, i64 0" (ind indent-level) funptrloc cloname)
-               (format "~a%~s = ptrtoint void(i64, i64)* @proc_~s to i64" (ind indent-level) fintname fname)
-               (format "~astore i64 %~s, i64* %~s" (ind indent-level) fintname funptrloc)
-               (format "~a%~s = ptrtoint i64* %~s to i64" (ind indent-level) x cloname)
-               (to-llvm ebody globals indent-level))]
-      [`(clo-app ,fname ,arglist)
-       (define cloname (gensym 'appcloptr))
-       (define fnptrpart (gensym 'fnptrpart))
-       (define fintname (gensym 'fintname))
-       (define funptrname (gensym 'funptr))
-       (format "\n~a\n~a\n~a\n~a\n~a\n~a"
-               (format "~a%~s = inttoptr i64 %~s to i64*" (ind indent-level) cloname fname)
-               (format "~a%~s = getelementptr inbounds i64, i64* %~s, i64 0" (ind indent-level) fnptrpart cloname)
-               (format "~a%~s = load i64, i64* %~s, align 8" (ind indent-level) fintname fnptrpart)
-               (format "~a%~s = inttoptr i64 %~s to void (i64,i64)*" (ind indent-level) funptrname fintname)
-               (format "~amusttail call fastcc void %~s(i64 %~a, i64 %~a)" (ind indent-level) funptrname fname arglist)
+       (format "~a\n~a\n~a\n~a\n~a\n~a"
+               ; allocate space on stack for pointer (so GC doesnt collect it)
+               (format "~a%~s = alloca %struct.SinObj*, align 8" (ind indent-level) stackptr)
+               ; Convert function pointer to integer for storage purposes
+               (format "~a%~s = ptrtoint void(%struct.SinObj*, %struct.SinObj*)* @proc_~s to i64" (ind indent-level) fintname fptrname)
+               ; allocate a closure object,
+               ; The first part of a closure is a int that can be casted to fptr: SinObj*(SinObj*,SinObj*)*
+               ; The second part is a vector, storing each free variable value.
+               ; The API is found in header.cpp, closure_* family of functions.
+               (format "~a%~s = call %struct.SinObj* @closure_alloc(i64 ~s, i64 %~s)" (ind indent-level) x (length freevars) fintname)
+               (place-freevars freevars 0)
+               (format "~astore %struct.SinObj* %~s, %struct.SinObj** %~s, align 8" (ind indent-level) x stackptr)
+               (to-llvm e globals indent-level))]
+      ;; TESTME
+      [`(clo-app ,cloobj ,arglist)
+       (define clointname (gensym 'cloint))
+       (define clofnobj (gensym 'clofn))
+       (format "~a\n~a\n~a\n~a"
+               (format "~a%~s = call i64 @closure_get_fn_part(%struct.SinObj* %~s)"
+                       (ind indent-level) clointname cloobj)
+               (format "~a%~s = inttoptr i64 %~s to void (%struct.SinObj*, %struct.SinObj*)*"
+                       (ind indent-level) clofnobj clointname)
+               (format "~amusttail call fastcc void %~s(%struct.SinObj* %~s, %struct.SinObj* %~s)"
+                       (ind indent-level) clofnobj cloobj arglist)
+               ; can this be an 'unreachable' instead?
                (format "~aret void" (ind indent-level)))]
-      [`(clo-app ,f ,xs ...)
-       (disp "CLO-APP: IDK HOW TO HANDLE NON-RUNTIME-ARG-LIST:: " proc) 'BADLOL]
       [`(if ,grd ,et ,ef)
        (define cmpr (gensym 'cmp))
        (define thenblock (gensym 'thenblock))
        (define elseblock (gensym 'elseblock))
-       (format "\n~a\n~a\n~a\n~a"
-               (format "~a%~s = icmp ne i64 %~s, 15" (ind indent-level) cmpr grd) ; 15 is false. TODO: globals.
+       (define intermediate-guard-val (gensym 'bool-value))
+       (format "\n~a\n~a\n~a\n~a\n~a"
+               (format "~a%~s = call i64 @is_truthy_value(%struct.SinObj* %~s)" (ind indent-level) intermediate-guard-val grd)
+               (format "~s%~s = icmp eq i64 %~s, 1" (ind indent-level) cmpr intermediate-guard-val)
                (format "~abr i1 %~s, label %~s, label %~s" (ind indent-level) cmpr thenblock elseblock)
                (format "~a~s:\n~a" (ind indent-level) thenblock (to-llvm et globals (add1 indent-level)))
                (format "~a~s:\n~a" (ind indent-level) elseblock (to-llvm ef globals (add1 indent-level))))]))
   (define (layout-procs procs globals) (map (lambda (proc) (to-llvm (normalize-names proc) globals)) procs))
-  (define (setup-main) "define i32 @main() {\n  call fastcc void @proc_main()\n  ret i32 0\n}") ;; TODO: indentation changes wont affect this
+   ;; TODO: indentation changes wont affect this
+  (define (setup-main) "define i32 @main() {\n  call fastcc void @proc_main()\n  ret i32 0\n}")
   (define globals (get-globals procs))
   (string-append (layout-globals globals) "\n"
-                 "@FALSE = global i64 15" "\n"
-                 "@TRUE = global i64 31" "\n"
-                 "@NULL = global i64 0" "\n"
+                 "@VOID_TYPE = global i32 0" "\n"
+                 "@NULL_TYPE = global i32 1" "\n"
+                 "@BOOL_TYPE = global i32 2" "\n"
+                 "@CLOSURE_TYPE = global i32 3" "\n"
+                 "@CONS_TYPE = global i32 4" "\n"
+                 "@INT_TYPE = global i32 5" "\n"
+                 "@STR_TYPE = global i32 6" "\n"
+                 "@SYM_TYPE = global i32 7" "\n"
+                 "@VECTOR_TYPE = global i32 8" "\n"
+                 "@HASH_TYPE = global i32 9" "\n"
+                 "@SET_TYPE = global i32 10" "\n"
+                 "@OTHER_TYPE = global i32 11" "\n"
                  (setup-main) "\n"
-                 (string-join (layout-procs procs globals) "\n")))
+                 (string-join (reverse (layout-procs procs globals)) "\n")))
 
 (define (layout-globals g-hash)
   (define (layout gs)
@@ -387,18 +461,6 @@
        (set-union (get et st) (get ef st))]))
   (get proc (set)))
 
-;; cid=175
-;; 8 Byte align all Strings!!!!
-
-
-;; TODO: clean up proc->llvm inner functions, its gross
-
-
 
 ;; FIXME: Bug when symbols have same contents as a string.
 ;;  Fix is to have separate global lists for each global type.
-
-
-
-
-

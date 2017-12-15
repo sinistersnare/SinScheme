@@ -60,6 +60,8 @@ some edge cases.
 
 If you would like to contribute documentation feel free :)
 
+I am pretty sure this only works on 64bit machines, so dont try on 32bit.
+
 ## TODO: ##
 
 `$ clang++ main.cpp /user/local/lib/libgc.a -pthread -o main`
@@ -96,3 +98,9 @@ There are better Scheme ecompilers anyways! Go use them instead!
 This project uses external libraries listed here with their licenses:
 
 
+
+(psst. heres some quick helper functions for debugging)
+
+`racket sinscm.rkt -i hello.sinscm -o build/output.ll && clang++ -o x.x ./build/output.ll && ./x.x`
+`racket sinscm.rkt -i hello.sinscm -o build/output.ll && clang++ -o x.x ./build/output.ll`
+`racket sinscm.rkt -i hello.sinscm -o build/output.ll`

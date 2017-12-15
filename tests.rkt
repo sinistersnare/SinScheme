@@ -9,15 +9,6 @@
 (require "src/racket/utils.rkt")
 (require "src/racket/closure-convert.rkt")
 
-#; (lambda ()
-            ;(display (format "Running llvm (scm) test ~s\n" path))
-            (define cps (cps-convert (anf-convert (alphatize (assignment-convert (simplify-ir (desugar exp)))))))
-            (define t0 (test-closure-convert closure-convert cps))
-            (define pr (closure-convert cps))
-            (if (and (proc-exp? pr) t0)
-                (test-proc->llvm proc->llvm pr)
-                #f))
-
 (define (make-test exp)
   (lambda ()
     (define top-level-result (eval-top-level exp))

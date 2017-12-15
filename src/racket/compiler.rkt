@@ -28,9 +28,19 @@
 (define (compile-code scm)
   ; awh no threading macro in Racket stdlib :(
   #; (~> code top-level desugar simplify-ir assignment-convert alphatize anf-convert cps-convert closure-convert proc->llvm)
-  (proc->llvm (closure-convert
+  (define ccd (closure-convert
                (cps-convert (anf-convert (alphatize (assignment-convert
-                                                                     (simplify-ir (desugar (top-level scm))))))))))
+                                                                     (simplify-ir (desugar (top-level scm)))))))))
+  ; (displayln ccd)
+  (proc->llvm ccd))
+
+
+
+
+
+
+
+
 
 
 

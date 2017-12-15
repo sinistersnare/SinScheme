@@ -1,689 +1,739 @@
 
-
-//#include "gc.h"    // Add back in and change tags if we want to use GC
+//#include "gc.h"
 #include "stdio.h"
 #include "stdlib.h"
 #include "stdint.h"
-
-#define CLO_TAG 0
-#define CONS_TAG 1
-#define INT_TAG 2
-#define STR_TAG 3
-#define SYM_TAG 4
-#define OTHER_TAG 6
-#define ENUM_TAG 7
-
-
-#define VECTOR_OTHERTAG 1
-// Hashes, Sets, gen records, can all be added here
-
-
-#define V_VOID 39  //32 +7 (+7 is for anything enumerable other than null)
-#define V_TRUE 31  //24 +7
-#define V_FALSE 15 //8  +7
-#define V_NULL 0
+#include "header.h"
 
 
 
-#define MASK64 0xffffffffffffffff // useful for tagging related operations
+extern "C" {
 
 
-#define ASSERT_TAG(v,tag,msg) \
-    if(((v)&7ULL) != (tag)) \
-        fatal_err(msg);
-
-#define ASSERT_VALUE(v,val,msg) \
-    if(((u64)(v)) != (val))     \
-        fatal_err(msg);
+// TODO:
+// * Does not look like >, >= is implemented?
+// * vector-* methods have an Int as its first value, but treat it as a u64.
+//      Should there be a Len type that is pointer sized?
 
 
-#define DECODE_CLO(v) ((u64*)((v)&(7ULL^MASK64)))
-#define ENCODE_CLO(v) (((u64)(v)) | CLO_TAG)
 
-#define DECODE_CONS(v) ((u64*)((v)&(7ULL^MASK64)))
-#define ENCODE_CONS(v) (((u64)(v)) | CONS_TAG)
+SinObj* alloc(const u64 amt) {
+    return new SinObj[amt];
+    // return (SinObj*) GC_MALLOC(amt);
+}
 
-#define DECODE_INT(v) ((s32)((u32)(((v)&(7ULL^MASK64)) >> 32)))
-#define ENCODE_INT(v) ((((u64)((u32)(v))) << 32) | INT_TAG)
+////////////// Objects
 
-#define DECODE_STR(v) ((char*)((v)&(7ULL^MASK64)))
-#define ENCODE_STR(v) (((u64)(v)) | STR_TAG)
+/// Returns a u64, which can be reinterpreted
+/// into a (void (SinObj*, SinObj*)) function pointer.
+u64 closure_get_fn_part(SinObj* clo) {
+    SinObj* clo_obj = unwrap_clo(clo);
+    return clo_obj[0].value;
+}
 
-#define DECODE_SYM(v) ((char*)((v)&(7ULL^MASK64)))
-#define ENCODE_SYM(v) (((u64)(v)) | SYM_TAG)
+// Returns a vector object internally,
+// but it should be treated as an opaque object, accessed thru
+// closure_env_* API
+SinObj* closure_get_env_part(SinObj* clo) {
+    SinObj* clo_obj = unwrap_clo(clo);
+    return &clo_obj[1];
+}
 
-#define DECODE_OTHER(v) ((u64*)((v)&(7ULL^MASK64)))
-#define ENCODE_OTHER(v) (((u64)(v)) | OTHER_TAG)
+SinObj* closure_alloc(const u64 amt_freevars, u64 cloval) {
+    SinObj* clo_obj = alloc(2);
+    SinObj* vec = prim_make_45vector(const_init_int(amt_freevars), const_init_int(0));
+    SinObj clo_part;
+    clo_part.type = Other; // TODO, layout of closures?
+    clo_part.value = cloval;
+    clo_obj[0] = clo_part;
+    clo_obj[1] = *vec;
+
+    SinObj* ret = alloc(1);
+    ret->type = Closure;
+    ret->value = reinterpret_cast<u64>(clo_obj);
+
+    return ret;
+}
+
+void closure_place_freevar(SinObj* clo, SinObj* freevar, u64 positionint) {
+    // unwrap handles asserting
+    SinObj* clo_obj = unwrap_clo(clo);
+
+    SinObj* vec = &clo_obj[1];
+    // TODO: probably want that Len type, or just make all lengths s64.
+    SinObj* pos = const_init_int((s64) positionint);
+    prim_vector_45set_33(vec, pos, freevar);
+}
+
+SinObj* closure_env_get(SinObj* clo, u64 pos) {
+    // unwrap handles asserting
+    SinObj* clo_obj = unwrap_clo(clo);
+
+    SinObj* vec = &clo_obj[1];
+    return prim_vector_45ref(vec, const_init_int((s64) pos));
+}
 
 
-// some apply-prim macros for expecting 1 argument or 2 arguments
-#define GEN_EXPECT1ARGLIST(f,g) \
-    u64 f(u64 lst) \
-    { \
-        u64 v0 = expect_args1(lst); \
-        return g(v0); \
+
+
+SinObj* unwrap_cons(SinObj* cons_obj) {
+    ASSERT_TYPE(*cons_obj, Cons, "unwrap_cons takes a Cons object!");
+    return reinterpret_cast<SinObj*>(cons_obj->value);
+}
+
+SinObj* unwrap_vector(SinObj* vec_obj) {
+    ASSERT_TYPE(*vec_obj, Vector, "unwrap_vector takes a Vector object!");
+    return reinterpret_cast<SinObj*>(vec_obj->value);
+}
+
+SinObj* unwrap_clo(SinObj* clo_obj) {
+    ASSERT_TYPE(*clo_obj, Closure, "unwrap_clo takes a Closure object!");
+    return reinterpret_cast<SinObj*>(clo_obj->value);
+}
+
+s64 unwrap_int(SinObj* int_obj) {
+    ASSERT_TYPE(*int_obj, Int, "unwrap_int takes an Int object!");
+    return static_cast<s64>(int_obj->value);
+}
+
+u64 unwrap_bool(SinObj* bool_obj) {
+    ASSERT_TYPE(*bool_obj, Bool, "unwrap_bool takes a Bool object!");
+    return bool_obj->value;
+}
+
+char* unwrap_str(SinObj* str_obj) {
+    ASSERT_TYPE(*str_obj, Str, "unwrap_str takes a Str object!");
+    return reinterpret_cast<char*>(str_obj->value);
+}
+
+char* unwrap_sym(SinObj* sym_obj) {
+    ASSERT_TYPE(*sym_obj, Sym, "unwrap_sym takes a Sym object!");
+    return reinterpret_cast<char*>(sym_obj->value);
+}
+
+u64 is_truthy_value(SinObj* obj) {
+    if (obj->type == Bool && (unwrap_bool(obj) == 0)) {
+        return 0;
     }
-
-#define GEN_EXPECT2ARGLIST(f,g) \
-    u64 f(u64 lst) \
-    { \
-        u64 rest; \
-        u64 v0 = expect_cons(lst, &rest); \
-        u64 v1 = expect_cons(rest, &rest); \
-        if (rest != V_NULL) \
-            fatal_err("prim applied on more than 2 arguments."); \
-        return g(v0,v1);                                           \
-    }
-
-#define GEN_EXPECT3ARGLIST(f,g) \
-    u64 f(u64 lst) \
-    { \
-        u64 rest; \
-        u64 v0 = expect_cons(lst, &rest); \
-        u64 v1 = expect_cons(rest, &rest); \
-        u64 v2 = expect_cons(rest, &rest); \
-        if (rest != V_NULL) \
-            fatal_err("prim applied on more than 2 arguments."); \
-        return g(v0,v1,v2);                                        \
-    }
-
-
-
-
-
-// No mangled names
-extern "C"
-{
-
-
-
-typedef uint64_t u64;
-typedef int64_t s64;
-typedef uint32_t u32;
-typedef int32_t s32;
-
-
-
-// UTILS
-
-
-u64* alloc(const u64 m)
-{
-    return new u64[m];
-    //return (u64*)GC_MALLOC(m);
+    return 1;
 }
 
-void fatal_err(const char* msg)
-{
-    printf("library run-time error: ");
-    printf("%s", msg);
-    printf("\n");
-    exit(1);
+// TODO: global objects for constant values like #t, #f or '() ?
+
+SinObj* const_init_int(s64 i) {
+    SinObj* ret = alloc(1);
+    ret->value = static_cast<u64>(i);
+    ret->type = Int;
+    return ret;
 }
 
-void print_u64(u64 i)
-{
-    printf("%llu\n", i);
+SinObj* const_init_void() {
+    SinObj* ret = alloc(1);
+    ret->value = 0;
+    ret->type = Void;
+    return ret;
 }
 
-u64 expect_args0(u64 args)
-{
-    if (args != V_NULL)
-        fatal_err("Expected value: null (in expect_args0). Prim cannot take arguments.");
-    return V_NULL;
+SinObj* const_init_null() {
+    SinObj* ret = alloc(1);
+    ret->value = 0;
+    ret->type = Null;
+    return ret;
+}
+SinObj* const_init_true() {
+    SinObj* ret = alloc(1);
+    ret->value = 1;
+    ret->type = Bool;
+    return ret;
 }
 
-u64 expect_args1(u64 args)
-{
-    ASSERT_TAG(args, CONS_TAG, "Expected cons value (in expect_args1). Prim applied on an empty argument list.")
-    u64* p = DECODE_CONS(args);
-    ASSERT_VALUE((p[1]), V_NULL, "Expected null value (in expect_args1). Prim can only take 1 argument.")
-    return p[0];
+SinObj* const_init_false() {
+    SinObj* ret = alloc(1);
+    ret->value = 0;
+    ret->type = Bool;
+    return ret;
 }
 
-u64 expect_cons(u64 p, u64* rest)
-{
-    // pass a pair value p and a pointer to a word *rest
-    // verifiies (cons? p), returns the value (car p) and assigns *rest = (cdr p)
-    ASSERT_TAG(p, CONS_TAG, "Expected a cons value. (expect_cons)")
-
-    u64* pp = DECODE_CONS(p);
-    *rest = pp[1];
-    return pp[0];
+SinObj* const_init_string(const char* s) {
+    SinObj* ret = alloc(1);
+    ret->value = reinterpret_cast<u64>(s);
+    ret->type = Str;
+    return ret;
 }
 
-u64 expect_other(u64 v, u64* rest)
-{
-    // returns the runtime tag value
-    // puts the untagged value at *rest
-    ASSERT_TAG(v, OTHER_TAG, "Expected a vector or special value. (expect_other)")
-
-    u64* p = DECODE_OTHER(v);
-    *rest = p[1];
-    return p[0];
+SinObj* const_init_symbol(const char* s) {
+    SinObj* ret = alloc(1);
+    ret->value = reinterpret_cast<u64>(s);
+    ret->type = Sym;
+    return ret;
 }
 
 
-/////// CONSTANTS
+////// Printing
+SinObj* print_cons(SinObj*);
+SinObj* print_vector(SinObj*);
 
+SinObj* prim_print_aux(SinObj* obj) {
+    SinType typ = obj->type;
+    u64 val = obj->value;
 
-u64 const_init_int(s64 i)
-{
-    return ENCODE_INT((s32)i);
-}
-
-u64 const_init_void()
-{
-    return V_VOID;
-}
-
-
-u64 const_init_null()
-{
-    return V_NULL;
-}
-
-
-u64 const_init_true()
-{
-    return V_TRUE;
-}
-
-
-u64 const_init_false()
-{
-    return V_FALSE;
-}
-
-
-u64 const_init_string(const char* s)
-{
-    return ENCODE_STR(s);
-}
-
-u64 const_init_symbol(const char* s)
-{
-    return ENCODE_SYM(s);
-}
-
-
-
-
-
-
-
-/////////// PRIMS
-
-
-///// effectful prims:
-
-u64 print_cons(u64);
-
-u64 prim_print_aux(u64 v)
-{
-    if (v == V_VOID) {}
-    else if (v == V_NULL)
+    switch (typ) {
+    case Void:
+        printf("#<void>");
+        break;
+    case Null:
         printf("()");
-    else if ((v&7) == CLO_TAG)
-        printf("#<procedure>");
-    else if ((v&7) == CONS_TAG)
-    {
-        printf("(");
-        print_cons(v);
-        printf(")");
-    }
-    else if ((v&7) == INT_TAG)
-    {
-        printf("%d", (int)((s32)(v >> 32)));
-    }
-    else if ((v&7) == STR_TAG)
-    {   // needs to handle escaping to be correct
-        printf("%s", DECODE_STR(v));
-        // char* str = DECODE_STR(v);
-        // if (str[0] != 0 && str[1] == 0 && str[0] == 10) {
-        //     printf("\n");
-        // } else {
-        //     printf("\"%s\"", DECODE_STR(v));
-        // }
-    }
-    else if ((v&7) == SYM_TAG)
-    {   // needs to handle escaping to be correct
-        printf("%s", DECODE_SYM(v));
-    }
-    else if ((v&7) == OTHER_TAG
-             && (VECTOR_OTHERTAG == (((u64*)DECODE_OTHER(v))[0] & 7)))
-    {
-        printf("#(");
-        u64* vec = (u64*)DECODE_OTHER(v);
-        u64 len = vec[0] >> 3;
-        prim_print_aux(vec[1]);
-        for (u64 i = 2; i <= len; ++i)
-        {
-            printf(",");
-            prim_print_aux(vec[i]);
+        break;
+    case Bool:
+        if (val == 0) {
+            printf("#f");
+        } else if (val == 1) {
+            printf("#t");
+        } else {
+            printf("Unknown Boolean value: %llu", val);
         }
+        break;
+    case Closure:
+        printf("#<procedure>");
+        break;
+    case Cons:
+        printf("(");
+        print_cons(obj);
         printf(")");
+        break;
+    case Int:
+        printf("%lld", unwrap_int(obj));
+        break;
+    case Str:
+        printf("%s", unwrap_str(obj));
+        break;
+    case Sym:
+        printf("%s", unwrap_sym(obj));
+        break;
+    case Vector:
+        print_vector(obj);
+        break;
+    case Hash:
+        printf("Hashes not currently supported!");
+        break;
+    case Set:
+        printf("Sets not currently supported!");
+        break;
+    case Other:
+        printf("(print v); unrecognized value %llu", val);
+        break;
+    // default:
+    //     printf("(print v); unrecognized value %llu", val);
+    //     break;
     }
-    else
-        printf("(print.. v); unrecognized value %llu", v);
-    //...
-    return V_VOID;
+    return const_init_void();
 }
 
-u64 prim_print(u64 v)
-{
-    if (v == V_VOID) {}
-    else if (v == V_NULL)
+SinObj* prim_print(SinObj* obj) {
+    SinType typ = obj->type;
+
+    switch (typ) {
+    case Null:
         printf("'()");
-    else if ((v&7) == CLO_TAG)
-        printf("#<procedure>");
-    else if ((v&7) == CONS_TAG)
-    {
-        printf("(");
-        print_cons(v);
-        printf(")");
-
-        // u64* p = DECODE_CONS(v);
-        // printf("'(");
-        // prim_print_aux(p[0]);
-        // printf(" . ");
-        // prim_print_aux(p[1]);
-        // printf(")");
+        break;
+    case Sym:
+        printf("'%s", unwrap_sym(obj));
+        break;
+    default:
+        prim_print_aux(obj);
+        break;
     }
-    else if ((v&7) == INT_TAG)
-    {
-        printf("%d", ((s32)(v >> 32)));
-    }
-    else if ((v&7) == STR_TAG)
-    {   // needs to handle escaping to be correct
-        printf("%s", DECODE_STR(v));
-        // char* str = DECODE_STR(v);
-        // if (str[0] != 0 && str[1] == 0 && str[0] == 10) {
-        //     printf("\n");
-        // } else {
-        //     printf("\"%s\"", DECODE_STR(v));
-        // }
-    }
-    else if ((v&7) == SYM_TAG)
-    {   // needs to handle escaping to be correct
-        printf("'%s", DECODE_SYM(v));
-    }
-    else if ((v&7) == OTHER_TAG
-             && (VECTOR_OTHERTAG == (((u64*)DECODE_OTHER(v))[0] & 7)))
-    {
-        printf("#(");
-        u64* vec = (u64*)DECODE_OTHER(v);
-        u64 len = vec[0] >> 3;
-        prim_print(vec[1]);
-        for (u64 i = 2; i <= len; ++i)
-        {
-            printf(",");
-            prim_print(vec[i]);
-        }
-        printf(")");
-    }
-    else
-        printf("(print v); unrecognized value %llu", v);
-    //...
-    return V_VOID;
-}
-
-
-u64 print_cons(u64 v) {
-    u64* p = DECODE_CONS(v);
-    u64 car = p[0];
-    u64 cdr = p[1];
-    prim_print_aux(car);
-
-    if (cdr == V_VOID) {}
-    else if (cdr == V_NULL) {}
-    else if ((cdr&7) == CONS_TAG) {
-        printf(" ");
-        print_cons(cdr);
-    } else {
-        printf(" . ");
-        prim_print_aux(cdr);
-    }
-
-    return V_VOID;
+    return const_init_void();
 }
 
 GEN_EXPECT1ARGLIST(applyprim_print,prim_print)
 
 
-u64 prim_halt(u64 v) // halt
-{
-    prim_print(v); // display the final value
-    printf("\n");
+SinObj* print_cons(SinObj* obj) {
+
+    SinObj* cons = unwrap_cons(obj);
+    SinObj* car = &cons[0];
+    SinObj* cdr = &cons[1];
+
+    prim_print_aux(car);
+
+    switch (cdr->type) {
+    case Null:
+        break;
+    case Void:
+        printf("#<void>");
+        break;
+    case Cons:
+        printf(" ");
+        print_cons(cdr);
+        break;
+    default:
+        printf(" . ");
+        prim_print_aux(cdr);
+        break;
+    }
+
+    return const_init_void();
+}
+
+
+SinObj* print_vector(SinObj* obj) {
+    SinObj* vector = unwrap_vector(obj);
+    u64 len = vector[0].value;
+    printf("#(");
+    for (u64 i = 1; i <= len; i++) {
+        if (i != 1) {
+            printf(" ");
+        }
+        prim_print_aux(&vector[i]);
+    }
+    printf(")");
+
+    return const_init_void();
+}
+
+
+const char* get_type_name(SinType type) {
+    switch (type) {
+    case Void:
+        return "Void";
+    case Null:
+        return "Null";
+    case Bool:
+        return "Bool";
+    case Closure:
+        return "Closure";
+    case Cons:
+        return "Cons";
+    case Int:
+        return "Int";
+    case Str:
+        return "String";
+    case Sym:
+        return "Symbol";
+    case Vector:
+        return "Vector";
+    case Hash:
+        return "Hash";
+    case Set:
+        return "Set";
+    case Other:
+        return "Other";
+    // default:
+    //     return "UNKNOWN??";
+    }
+}
+
+
+
+// Primitives
+
+
+SinObj* prim_halt(SinObj* val) { // halt
+    prim_print(val);
+    if (val->type != Void) {
+        printf("\n");
+    }
     exit(0);
-    return V_NULL;
 }
 
+// TODO: use this more
+void _get_both(SinObj lst, SinObj* car, SinObj* cdr) {
+    ASSERT_TYPE(lst, Cons, "_get_both only takes a Cons!");
+    SinObj* cons_obj = unwrap_cons(&lst);
+    // this is safe because the lifetimes are the same
+    // the lifetime of lst is >= than the lifetimes
+    // of car and cdr.
+    *car = cons_obj[0];
+    *cdr = cons_obj[1];
+}
 
-u64 applyprim_vector(u64 lst)
-{
-    // pretty terrible, but works
-    u64* buffer = new u64[256];
+SinObj* applyprim_vector(SinObj* curptr) { // apply vector
+    SinObj cur = *curptr;
+    // FIXME: arbitrarily large vectors.
+    SinObj* buf = new SinObj[256];
     u64 i = 0;
-    while ((lst&7) == CONS_TAG && i < 256)
-        buffer[i++] = expect_cons(lst, &lst);
-    u64* mem = alloc(i+1);
-    mem[0] = (i << 3) | VECTOR_OTHERTAG;
-    for (u64 j = 1; j <= i; ++j)
-        mem[j] = buffer[j-1];
-    delete [] buffer;
-    return ENCODE_OTHER(mem);
+
+    while (cur.type == Cons && i < 256) {
+        SinObj car, cdr;
+        _get_both(cur, &car, &cdr);
+        buf[i++] = car;
+        cur = cdr;
+    }
+    if (i == 256 && cur.type != Null) {fatal_err("Vectors larger than 256 elements are unimplemented. Sorry!");}
+
+    SinObj* mem = alloc(i+1);
+    SinObj size;
+    size.value = i;
+    size.type = Int;
+    mem[0] = size;
+
+    for (u64 j = 1; j <= i; j++) {
+        mem[j] = buf[j-1];
+    }
+    delete [] buf;
+
+    SinObj* ret = alloc(1);
+    ret->value = reinterpret_cast<u64>(mem);
+    ret->type = Vector;
+    return ret;
 }
 
+// TODO
+SinObj* prim_make_45vector(SinObj* length_obj, SinObj* fill) { // make-vector
+    ASSERT_TYPE(*length_obj, Int, "First argument to make-vector must be an Int.");
 
+    u64 len = length_obj->value;
+    SinObj* vec = alloc(1 + len);
 
-u64 prim_make_45vector(u64 lenv, u64 iv)
-{
-    ASSERT_TAG(lenv, INT_TAG, "first argument to make-vector must be an integer")
+    vec[0] = *length_obj;
+    for (u64 i = 1; i <= len; i++) {
+        // not sure how safe it is to just put fill here a lot.
+        vec[i] = *fill;
+    }
 
-    const u64 l = DECODE_INT(lenv);
-    u64* vec = (u64*)alloc(1 + (l * sizeof(u64)));
-    vec[0] = VECTOR_OTHERTAG;
-    for (u64 i = 1; i <= l; ++i)
-        vec[i] = iv;
-    return ENCODE_OTHER(vec);
+    SinObj* ret = alloc(1);
+    ret->value = reinterpret_cast<u64>(vec);
+    ret->type = Vector;
+    return ret;
 }
+
 GEN_EXPECT2ARGLIST(applyprim_make_45vector, prim_make_45vector)
 
 
-u64 prim_vector_45ref(u64 v, u64 i)
-{
-    ASSERT_TAG(i, INT_TAG, "second argument to vector-ref must be an integer")
-    ASSERT_TAG(v, OTHER_TAG, "first argument to vector-ref must be a vector")
+SinObj* prim_vector_45length(SinObj* vec) { // vector-length
+    ASSERT_TYPE(*vec, Vector, "First argument to vector-length must be a Vector.");
 
-    if ((((u64*)DECODE_OTHER(v))[0]&7) != VECTOR_OTHERTAG)
-        fatal_err("vector-ref not given a properly formed vector");
-
-    return ((u64*)DECODE_OTHER(v))[1+(DECODE_INT(i))];
+    SinObj* vec_obj = unwrap_vector(vec);
+    return &vec_obj[0];
 }
+
+GEN_EXPECT1ARGLIST(applyprim_vector_45length, prim_vector_45length)
+
+SinObj* prim_vector_45ref(SinObj* vector, SinObj* pos) { // vector-ref
+    ASSERT_TYPE(*pos, Int, "Second argument to vector-ref must be an Int.");
+
+    SinObj* vec = unwrap_vector(vector);
+
+    // just do ->value becuase we want u64 and not s64.
+    u64 index_pos = pos->value;
+
+    // TODO: at runtime, wrap vector-ref calls with this.
+    // (vec[0] is length)
+    if (index_pos > vector[0].value) {fatal_err("Vector indexing out of bounds: TODO: at top-level");}
+
+    // + 1 becuase length is at index 0, so need to push everything up 1.
+    return &vec[index_pos + 1];
+}
+
 GEN_EXPECT2ARGLIST(applyprim_vector_45ref, prim_vector_45ref)
 
 
-u64 prim_vector_45set_33(u64 a, u64 i, u64 v)
-{
-    ASSERT_TAG(i, INT_TAG, "second argument to vector-ref must be an integer")
-    ASSERT_TAG(a, OTHER_TAG, "first argument to vector-ref must be a vector")
+SinObj* prim_vector_45set_33(SinObj* vec, SinObj* pos, SinObj* val) { // vector-set!
+    ASSERT_TYPE(*pos, Int, "Second argument to vector-set! must be an Int.");
 
-    if ((((u64*)DECODE_OTHER(a))[0]&7) != VECTOR_OTHERTAG)
-        fatal_err("vector-ref not given a properly formed vector");
+    SinObj* vector = unwrap_vector(vec);
+    // just do ->value becuase we want u64 and not s64.
+    u64 index_pos = pos->value;
 
+    // TODO: at runtime, wrap vector-ref calls with this.
+    // (vec[0] is length)
+    if (index_pos > vector[0].value) {fatal_err("Vector indexing out of bounds: TODO: at top-level");}
 
-    ((u64*)(DECODE_OTHER(a)))[1+DECODE_INT(i)] = v;
-
-    return V_VOID;
+    // + 1 becuase length is index 0, so need to push everything up 1.
+    vector[index_pos + 1] = *val; // unsure of safety of lifetimes just to deref val here.
+    return const_init_void();
 }
+
 GEN_EXPECT3ARGLIST(applyprim_vector_45set_33, prim_vector_45set_33)
 
-
-///// void, ...
-
-
-u64 prim_void()
-{
-    return V_VOID;
+/// Returns a SinObj of type Void
+SinObj* prim_void() { // void
+    return const_init_void();
 }
 
 
+///// eq? eqv? equal?
 
+/// Returns a SinObj of type Bool
+// CURRENTLY ONLY TAKES INTS, TODO
+SinObj* prim_eq_63(SinObj* a, SinObj* b) { // eq?
+    if (b->type != a->type) return const_init_false();
 
-
-
-///// eq?, eqv?, equal?
-
-
-u64 prim_eq_63(u64 a, u64 b)
-{
-    if (a == b)
-        return V_TRUE;
-    else
-        return V_FALSE;
+    // TODO: is this enough?
+    // probably need special checks? Or for other types.
+    SinObj* ret = alloc(1);
+    ret->value = unwrap_int(a) == unwrap_int(b);
+    ret->type = Bool;
+    return ret;
 }
+
 GEN_EXPECT2ARGLIST(applyprim_eq_63, prim_eq_63)
 
-
-u64 prim_eqv_63(u64 a, u64 b)
-{
-    if (a == b)
-        return V_TRUE;
-    //else if  // optional extra logic
-    else
-        return V_FALSE;
+/// Returns a SinObj of type Bool
+SinObj* prim_eqv_63(SinObj* a, SinObj* b) { // eqv?
+    return prim_eq_63(a, b); // TODO
 }
+
 GEN_EXPECT2ARGLIST(applyprim_eqv_63, prim_eqv_63)
 
-/*
-u64 prim_equal_63(u64 a, u64 b)
-{
-    return 0;
+/// Returns a SinObj of type Bool
+SinObj* prim_equal_63(SinObj* a, SinObj* b) { // equal?
+    return prim_eq_63(a, b); // TODO
 }
+
 GEN_EXPECT2ARGLIST(applyprim_equal_63, prim_equal_63)
-*/
+
+////// Other Predicates
 
 
-///// Other predicates
+// TODO: return #t/#f constants here?
 
-
-u64 prim_number_63(u64 a)
-{
-    // We assume that ints are the only number
-    if ((a&7) == INT_TAG)
-        return V_TRUE;
-    else
-        return V_FALSE;
+/// Returns a SinObj of type Bool
+SinObj* prim_number_63(SinObj* n) { // number?
+    // TODO: floats not implemented lul.
+    SinObj* ret = alloc(1);
+    ret->value = n->type == Int;
+    ret->type = Bool;
+    return ret;
 }
+
 GEN_EXPECT1ARGLIST(applyprim_number_63, prim_number_63)
 
-
-u64 prim_integer_63(u64 a)
-{
-    if ((a&7) == INT_TAG)
-        return V_TRUE;
-    else
-        return V_FALSE;
+/// Returns a SinObj of type Bool
+SinObj* prim_integer_63(SinObj* n) { // integer?
+    SinObj* ret = alloc(1);
+    ret->value = n->type == Int;
+    ret->type = Bool;
+    return ret;
 }
+
 GEN_EXPECT1ARGLIST(applyprim_integer_63, prim_integer_63)
 
-
-u64 prim_void_63(u64 a)
-{
-    if (a == V_VOID)
-        return V_TRUE;
-    else
-        return V_FALSE;
+/// Returns a SinObj of type Bool
+SinObj* prim_void_63(SinObj* obj) { // void?
+    SinObj* ret = alloc(1);
+    ret->value = obj->type == Void;
+    ret->type = Bool;
+    return ret;
 }
+
 GEN_EXPECT1ARGLIST(applyprim_void_63, prim_void_63)
 
-
-u64 prim_procedure_63(u64 a)
-{
-    if ((a&7) == CLO_TAG)
-        return V_TRUE;
-    else
-        return V_FALSE;
+/// Returns a SinObj of type Bool
+SinObj* prim_procedure_63(SinObj* obj) { // procedure?
+    SinObj* ret = alloc(1);
+    ret->value = obj->type == Closure;
+    ret->type = Bool;
+    return ret;
 }
+
 GEN_EXPECT1ARGLIST(applyprim_procedure_63, prim_procedure_63)
 
+// null? cons? cons car cdr
 
-///// null?, cons?, cons, car, cdr
-
-
-u64 prim_null_63(u64 p) // null?
-{
-    if (p == V_NULL)
-        return V_TRUE;
-    else
-        return V_FALSE;
+/// Returns a SinObj of type Bool
+SinObj* prim_null_63(SinObj* obj) { // null?
+    SinObj* ret = alloc(1);
+    ret->value = obj->type == Null;
+    ret->type = Bool;
+    return ret;
 }
+
 GEN_EXPECT1ARGLIST(applyprim_null_63, prim_null_63)
 
-
-u64 prim_cons_63(u64 p) // cons?
-{
-    if ((p&7) == CONS_TAG)
-        return V_TRUE;
-    else
-        return V_FALSE;
+/// Returns a SinObj of type Bool
+SinObj* prim_cons_63(SinObj* obj) { // cons?
+    SinObj* ret = alloc(1);
+    ret->value = obj->type == Cons;
+    ret->type = Bool;
+    return ret;
 }
+
 GEN_EXPECT1ARGLIST(applyprim_cons_63, prim_cons_63)
 
 
-u64 prim_cons(u64 a, u64 b)
-{
-    u64* p = alloc(2*sizeof(u64));
-    p[0] = a;
-    p[1] = b;
-    return ENCODE_CONS(p);
+/// Returns a SinObj of type Cons
+SinObj* prim_cons(SinObj* car, SinObj* cdr) { // cons
+    SinObj* ptr = alloc(2 * sizeof(SinObj));
+    // unsure of safety of this.
+    ptr[0] = *car;
+    ptr[1] = *cdr;
+    SinObj* ret = alloc(1);
+    ret->value = reinterpret_cast<u64>(ptr);
+    // ret.value = (u64) ptr;
+    ret->type = Cons;
+    return ret;
 }
-GEN_EXPECT2ARGLIST(applyprim_cons, prim_cons)
 
+// GEN_EXPECT2ARGLIST(applyprim_cons, prim_cons)
 
-u64 prim_car(u64 p)
-{
-    u64 rest;
-    u64 v0 = expect_cons(p,&rest);
+/// Takes a Cons and returns its car
+SinObj* prim_car(SinObj* cons_obj) { // car
+    SinObj* cons = unwrap_cons(cons_obj);
 
-    return v0;
+    return &cons[0];
 }
+
 GEN_EXPECT1ARGLIST(applyprim_car, prim_car)
 
+/// Takes a Cons and returns its cdr
+SinObj* prim_cdr(SinObj* cons_obj) { // cdr
+    SinObj* cons = unwrap_cons(cons_obj);
 
-u64 prim_cdr(u64 p)
-{
-    u64 rest;
-    u64 v0 = expect_cons(p,&rest);
-
-    return rest;
+    return &cons[1];
 }
+
 GEN_EXPECT1ARGLIST(applyprim_cdr, prim_cdr)
 
+/// Returns a SinObj of type Int
+SinObj* prim__43(SinObj* a, SinObj* b) { // +
+    s64 a_val = unwrap_int(a);
+    s64 b_val = unwrap_int(b);
 
-///// s32 prims, +, -, *, =, ...
-
-
-u64 prim__43(u64 a, u64 b) // +
-{
-    ASSERT_TAG(a, INT_TAG, "(prim + a b); a is not an integer")
-    ASSERT_TAG(b, INT_TAG, "(prim + a b); b is not an integer")
-
-        //printf("sum: %ld\n", DECODE_INT(a) + DECODE_INT(b));
-
-    return ENCODE_INT(DECODE_INT(a) + DECODE_INT(b));
+    return const_init_int(a_val + b_val);
 }
 
-u64 applyprim__43(u64 p)
-{
-    if (p == V_NULL)
-        return ENCODE_INT(0);
-    else
-    {
-        ASSERT_TAG(p, CONS_TAG, "Tried to apply + on non list value.")
-        u64* pp = DECODE_CONS(p);
-        return ENCODE_INT(DECODE_INT(pp[0]) + DECODE_INT(applyprim__43(pp[1])));
+// Takes a Cons object
+// (called cur becuase we loop thru it and use the same binding)
+SinObj* applyprim__43(SinObj* cur) { // apply +
+    SinType typ = cur->type;
+    if (typ != Cons && typ != Null) {
+        fatal_errf("Expected Cons in apply +, but got %s", get_type_name(typ));
+    }
+
+    s64 final = 0;
+
+    while (cur->type == Cons) {
+        SinObj car, cdr;
+        _get_both(*cur, &car, &cdr);
+        ASSERT_TYPE(car, Int, "+ takes only Int arguments.");
+        final += unwrap_int(&car);
+        cur = &cdr;
+    }
+    return const_init_int(final);
+}
+
+/// Returns a SinObj of type Int
+SinObj* prim__45(SinObj* a, SinObj* b) { // -
+    // a - b
+    s64 a_val = unwrap_int(a);
+    s64 b_val = unwrap_int(b);
+
+    return const_init_int(a_val - b_val);
+}
+
+SinObj* applyprim__45(SinObj* list) { // apply -
+    SinObj* cons_obj = unwrap_cons(list);
+    SinObj car = cons_obj[0];
+    SinObj cdr = cons_obj[1];
+
+    ASSERT_TYPE(car, Int, "First argument to - must be an Int");
+    s64 carval = unwrap_int(&car);
+
+    if (cdr.type == Null) {
+        return const_init_int(0 - carval);
+    }
+
+    s64 final = carval;
+    SinObj cur = cdr;
+    while (cur.type != Null) {
+        SinObj cur_car, cur_cdr;
+
+        _get_both(cur, &cur_car, &cur_cdr);
+        ASSERT_TYPE(cur_car, Int, "apply - only takes Int arguments.");
+        final -= unwrap_int(&cur_car);
+        cur = cur_cdr;
+    }
+    return const_init_int(final);
+}
+
+
+/// Returns a SinObj of type Int
+SinObj* prim__42(SinObj* a, SinObj* b) { // *
+    // a - b
+    return const_init_int(unwrap_int(a) * unwrap_int(b));
+}
+
+SinObj* applyprim__42(SinObj* list) { // apply *
+    if (list->type == Null) {
+        return const_init_int(1);
+    } else if (list->type == Cons) {
+        SinObj* cons_obj = unwrap_cons(list);
+        SinObj car = cons_obj[0];
+        SinObj cdr = cons_obj[1];
+        ASSERT_TYPE(car, Int, "* Only takes Integer arguments.");
+        s64 carval = unwrap_int(&car);
+        s64 cdrval = unwrap_int(applyprim__42(&cdr));
+        return const_init_int(carval * cdrval);
+    } else {
+        fatal_err("applyprim__42 taking a non-list argument!");
     }
 }
 
-u64 prim__45(u64 a, u64 b) // -
-{
-    ASSERT_TAG(a, INT_TAG, "(prim + a b); a is not an integer")
-    ASSERT_TAG(b, INT_TAG, "(prim - a b); b is not an integer")
-
-    return ENCODE_INT(DECODE_INT(a) - DECODE_INT(b));
+/// Returns a SinObj of type Int
+SinObj* prim__47(SinObj* a, SinObj* b) { // /
+    s64 a_val = unwrap_int(a);
+    s64 b_val = unwrap_int(b);
+    return const_init_int(a_val / b_val);
 }
 
-u64 applyprim__45(u64 p)
-{
-    if (p == V_NULL)
-        return ENCODE_INT(0);
-    else
-    {
-        ASSERT_TAG(p, CONS_TAG, "Tried to apply + on non list value.")
-        u64* pp = DECODE_CONS(p);
-        if (pp[1] == V_NULL)
-            return ENCODE_INT(0 - DECODE_INT(pp[0]));
-        else // ideally would be properly left-to-right
-            return ENCODE_INT(DECODE_INT(pp[0]) - DECODE_INT(applyprim__43(pp[1])));
+// SinObj applyprim__47(SinObj list) { // apply /
+//     ASSERT_TYPE(list, Cons, "apply / must take a list as argument.");
+//     {fatal_err("unimplemented...");}
+//     // original header does not implement this...
+// }
+
+/// Takes 2 SinObj's of type Int
+/// Returns a SinObj of type Bool
+SinObj* prim__61(SinObj* a, SinObj* b) { // =
+    if (unwrap_int(a) == unwrap_int(b)) {
+        return const_init_true();
+    } else {
+        return const_init_false();
     }
 }
 
-u64 prim__42(u64 a, u64 b) // *
-{
-    ASSERT_TAG(a, INT_TAG, "(prim * a b); a is not an integer")
-    ASSERT_TAG(b, INT_TAG, "(prim * a b); b is not an integer")
-
-    return ENCODE_INT(DECODE_INT(a) * DECODE_INT(b));
-}
-
-u64 applyprim__42(u64 p)
-{
-    if (p == V_NULL)
-        return ENCODE_INT(1);
-    else
-    {
-        ASSERT_TAG(p, CONS_TAG, "Tried to apply + on non list value.")
-        u64* pp = DECODE_CONS(p);
-        return ENCODE_INT(DECODE_INT(pp[0]) * DECODE_INT(applyprim__42(pp[1])));
+/// Takes 2 SinObj's of type Int
+/// Returns a SinObj of type Bool
+SinObj* prim__60(SinObj* a , SinObj* b) { // <
+    if (unwrap_int(a) < unwrap_int(b)) {
+        return const_init_true();
+    } else {
+        return const_init_false();
     }
 }
 
-u64 prim__47(u64 a, u64 b) // /
-{
-    ASSERT_TAG(a, INT_TAG, "(prim / a b); a is not an integer")
-    ASSERT_TAG(b, INT_TAG, "(prim / a b); b is not an integer")
-
-    return ENCODE_INT(DECODE_INT(a) / DECODE_INT(b));
+/// Takes 2 SinObj's of type Int
+/// Returns a SinObj of type Bool
+SinObj* prim__60_61(SinObj* a, SinObj* b) { // <=
+    if (unwrap_int(a) <= unwrap_int(b)) {
+        return const_init_true();
+    } else {
+        return const_init_false();
+    }
 }
 
-u64 prim__61(u64 a, u64 b)  // =
-{
-    ASSERT_TAG(a, INT_TAG, "(prim = a b); a is not an integer")
-    ASSERT_TAG(b, INT_TAG, "(prim = a b); b is not an integer")
-
-    if ((s32)((a&(7ULL^MASK64)) >> 32) == (s32)((b&(7ULL^MASK64)) >> 32))
-        return V_TRUE;
-    else
-        return V_FALSE;
+/// Takes a SinObj of type Bool Returns a SinObj of type Bool
+SinObj* prim_not(SinObj* b) { // not
+    if (b->value == 0) {
+        return const_init_true();
+    } else {
+        return const_init_false();
+    }
 }
 
-u64 prim__60(u64 a, u64 b) // <
-{
-    ASSERT_TAG(a, INT_TAG, "(prim < a b); a is not an integer")
-    ASSERT_TAG(b, INT_TAG, "(prim < a b); b is not an integer")
-
-    if ((s32)((a&(7ULL^MASK64)) >> 32) < (s32)((b&(7ULL^MASK64)) >> 32))
-        return V_TRUE;
-    else
-        return V_FALSE;
-}
-
-u64 prim__60_61(u64 a, u64 b) // <=
-{
-    ASSERT_TAG(a, INT_TAG, "(prim <= a b); a is not an integer")
-    ASSERT_TAG(b, INT_TAG, "(prim <= a b); b is not an integer")
-
-    if ((s32)((a&(7ULL^MASK64)) >> 32) <= (s32)((b&(7ULL^MASK64)) >> 32))
-        return V_TRUE;
-    else
-        return V_FALSE;
-}
-
-u64 prim_not(u64 a)
-{
-    if (a == V_FALSE)
-        return V_TRUE;
-    else
-        return V_FALSE;
-}
 GEN_EXPECT1ARGLIST(applyprim_not, prim_not)
 
 
 
+
+
+
+
+
+
+
+
+
 }
-
-
-
-

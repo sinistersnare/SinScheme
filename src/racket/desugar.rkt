@@ -334,7 +334,7 @@
             [%raise-handler (lambda (,uncaught-raise-arg) (begin (print '"Uncaught Exception: ")
                                                           (print ,uncaught-raise-arg)
                                                           (print '"\n")
-                                                          (halt ,uncaught-raise-arg)))]
+                                                          (halt (void))))]
             [%wind-stack '()]
             [%common-tail (lambda (x y)
                             (let ((lx (length x))

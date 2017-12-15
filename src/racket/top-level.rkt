@@ -7,6 +7,14 @@
 ; By Davis Silverman
 
 (define (top-level e)
+  (define (layout-vector-ref vecname pos)
+    `(if (>= ,(T pos) (vector-length ,(T vecname)))
+         (raise '(exception vector-out-of-bounds (vector-ref ,vecname ,pos)))
+         (vector-ref ,(T vecname) ,(T pos))))
+  (define (layout-vector-set! vecname pos newval)
+    `(if (>= ,(T pos) (vector-length ,(T vecname)))
+         (raise '(exception vector-set!-out-of-bounds (vector-set! ,vecname ,pos ,newval)))
+         (vector-set! ,(T vecname) ,(T pos) ,(T newval))))
   (define (layout-prim-div num denoms)
     (define d-names (map (lambda (_) (gensym 'denominator)) denoms))
     (define bindings (map (lambda (denom name) `(,name ,(T denom))) denoms d-names))
@@ -198,6 +206,10 @@
        ; (displayln (format "got dat: ~s" dat))
        e]
       [`(quasiquote ,qdat) (layout-qq qdat 1)]
+      [`(vector-set! ,vec ,pos ,newval)
+       (layout-vector-set! vec pos newval)]
+      [`(vector-ref ,vec ,pos)
+       (layout-vector-ref vec pos)]
       [`(/ ,numerator . ,denominators)
        (if (empty? denominators)
            `(/ ,numerator)
