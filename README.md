@@ -1,4 +1,4 @@
-## Sin's Scheme Compiler ##
+# Sin's Scheme Compiler #
 
 Hi! This is a scheme compiler that I wrote for my Compilers Class:
 [CMSC 430](https://www.cs.umd.edu/class/fall2017/cmsc430/)
