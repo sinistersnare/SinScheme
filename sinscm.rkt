@@ -2,6 +2,14 @@
 
 (require "src/racket/compiler.rkt") ; compile-code, compile-program
 
+(provide scm->llvmir
+         scm->exe
+         llvmir->exe
+         libgc-include-dir
+         libgc-obj-path
+         clang++-path
+         compiler-flags)
+
 (require racket/cmdline)
 
 ; CLI ONLY
@@ -23,8 +31,8 @@
                        "LLVM output to specific file"
                        (outfileparam outfile)]
    [("-t" "--out-type") outputtype
-                       "What kind of thing to output. -t LLVM for llvm ir text file, -t EXE for executable."
-                       (outputtypeparam outputtype)]
+                        "What kind of thing to output. -t LLVM for llvm ir text file, -t EXE for executable."
+                        (outputtypeparam outputtype)]
    [("-j" "--in-type") inputtype
                        "What kind of thing is input, LLVM or SCM (-j LLVM or -j SCM)"
                        (inputtypeparam inputtype)]
@@ -45,14 +53,15 @@
 
 (define output-port
   (if (null? (outfileparam))
-      (error "Need Output File (-o)! Check --help for details")
+      '()
       (open-output-file (outfileparam) #:exists 'replace)))
 
-(match-define `(,compilation-method ,input-port)
+(define input-port
   (cond
-    [(not (null? (infileparam))) `(,compile-program ,(open-input-file (infileparam)))]
-    [(not (null? (sourcecodeparam))) `(,compile-code ,(open-input-string (sourcecodeparam)))]
-    [else (error "Need Input File or Source Code! Check --help for -i and -e")]))
+    [(not (null? (infileparam))) (open-input-file (infileparam))]
+    [(not (null? (sourcecodeparam))) (open-input-string (sourcecodeparam))]
+    [else '()]))
+
 
 (define output-type
   (if (null? (outputtypeparam))
@@ -60,7 +69,7 @@
       (case (outputtypeparam)
         [("LLVM" "llvm") 'llvm]
         [("EXE" "exe") 'exe]
-        [else (error (format "Output type ~s not supported!" (outputtypeparam)))])))
+        [else '()])))
 
 (define input-type
   (if (null? (inputtypeparam))
@@ -68,11 +77,13 @@
       (case (inputtypeparam)
         [("LLVM" "llvm") 'llvm]
         [("SCM" "scm" "SCHEME" "scheme" "SINSCM" "sinscm") 'scm]
-        [else (error (format "Input type ~s not supported!" (inputtypeparam)))])))
+        [else '()])))
 
-(when (not (directory-exists? "build")) (make-directory "build"))
 
-(define gen-header-name (string-append "build/" (symbol->string (gensym 'generated_header)) ".ll"))
+
+(define (gen-header-name)
+  (when (not (directory-exists? "build")) (make-directory "build"))
+  (string-append "build/" (symbol->string (gensym 'generated_header)) ".ll"))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; HERE ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; SET THESE TO YOUR GC LOCATIONS PLZ
@@ -102,62 +113,83 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; HERE ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (define compiler-flags
-  (string-join '("-g"
-                   "-std=c++11"
-                   "-lpthread"
-                   "-Wall"
-                   "-Weverything"
-                   "-DGC_DEBUG"
-                   )))
+  (string-join '("-Wno-unused-command-line-argument"
+                 "-std=c++11"
+                 "-lpthread"
+                 ; "-O2" ;;; TODO figure out why optimization fails
+                 "-Wall"
+                 "-Weverything"
+                 ;"-g"
+                 ;"-DGC_DEBUG"
+                 )))
 
-(define (output-to-llvm [out-port output-port])
-  (system (format "~s ~a ./src/cpp/header.cpp -I~s -S -emit-llvm -o ~s"
-                  clang++-path compiler-flags libgc-include-dir gen-header-name))
-  #;(system (format "~s -g -std=c++11 -Wall -Weverything ./src/cpp/header.cpp -I~s -DGC_DEBUG -S -emit-llvm -o ~s"
-                  clang++-path libgc-include-dir gen-header-name))
-  (define header-code (file->string gen-header-name))
+; should probably parameterize this too.
+(define header-location "./src/cpp/header.cpp")
+
+(define (scm->llvmir [in-port input-port] [out-port output-port] [clang-path clang++-path]
+                     [all-compiler-flags compiler-flags] [libgc-include-dir-path libgc-include-dir]
+                     [output-llvm-ir-header-name (gen-header-name)])
+  ; Compile the header file into llvm-ir
+  (system (format "~s ~a ~a -I~s -S -emit-llvm -o ~s"
+                  clang-path all-compiler-flags header-location libgc-include-dir-path output-llvm-ir-header-name))
+  ; Compile Scheme code to llvm-ir
   (define compiled-code
     (let ([compiled-str (open-output-string)])
-      (compile-program input-port compiled-str)
+      (compile-program in-port compiled-str)
       (get-output-string compiled-str)))
-  (define complete-program (string-append header-code "\n\n;;;;;;;End Prelude;;;;;;;\n\n" compiled-code))
+  ; create a complete llvm program with prelude.
+  (define complete-program (string-append (file->string output-llvm-ir-header-name) "\n\n;;;;;;;End Prelude;;;;;;;\n\n" compiled-code))
   (display complete-program out-port))
 
-(define (output-to-exe)
+(define (llvmir->exe combined-ir-filepath [clang-path clang++-path]
+                     [all-compiler-flags compiler-flags] [libgc-lib-path libgc-obj-path]
+                     [outfilename (outfileparam)])
+  (system (format "~a ~a ~a ~a -o ~a" clang-path all-compiler-flags libgc-lib-path combined-ir-filepath outfilename)))
+
+(define (scm->exe inputport outfilename
+                  [clang-path clang++-path] [all-compiler-flags compiler-flags]
+                  [libgc-object-file-path libgc-obj-path] [libgc-include-dir-path libgc-include-dir]
+                  [header-llvm-built-name (gen-header-name)])
   (define combined-file-location (string-append "build/" (symbol->string (gensym 'generated_combined)) ".ll"))
   (define combined-output-file (open-output-file combined-file-location #:exists 'replace))
-  (output-to-llvm combined-output-file)
-  (close-output-port combined-output-file) ; cant use combined-output-file anymore!
-  (ir-to-exe combined-file-location)
-  #;(system (format "~s ~a -o ~s ~s ~s"
-                  clang++-path compiler-flags
-                  (outfileparam) libgc-obj-path combined-file-location))
+  (scm->llvmir inputport combined-output-file clang-path all-compiler-flags libgc-include-dir-path header-llvm-built-name)
+
+  (close-output-port combined-output-file) ; dont use combined-output-file anymore!
+  (llvmir->exe combined-file-location clang-path all-compiler-flags libgc-object-file-path outfilename)
   ; remove this void for a status check to be printed out
   ; (it seems if system is the last call in a block it will print whether it worked or not?)
   (void))
 
 
-(define (ir-to-exe combined-ir-filepath)
-  (system (format "~s ~a -o ~s ~s ~s"
-                  clang++-path  compiler-flags
-                  (outfileparam) libgc-obj-path combined-ir-filepath)))
+;; FIXME: if only one port is created (either input-port or output-port) then the one opened will not be closed
+;; so instead of ormap? maybe we need to check and close if one is open.
+(define params `(,output-port ,input-port ,output-type ,input-type))
+(when (not (andmap null? params))
+    (if (ormap null? params)
+        ; If not all params are null, but at least 1 is..
+        (error "Must provide all possible arguments! Please see --help")
+        ; If all params are provided, then we are in CLI mode:
+        (begin
+          (case input-type
+            [(llvm)
+             (case output-type
+               [(exe) (llvmir->exe (infileparam))]
+               [(llvm) (error "Output type LLVM not supported for input type LLVM. You already have the file!")]
+               [else (error "I figured this was unreachable??")])]
+            [(scm)
+             (case output-type
+               [(llvm) (scm->llvmir input-port)]
+               [(exe) (scm->exe input-port (outfileparam) clang++-path compiler-flags libgc-obj-path libgc-include-dir (gen-header-name))]
+               [else (error "I figured this was unreachable??")])])
+          (close-input-port input-port)
+          (close-output-port output-port))))
 
-(case input-type
-  [(llvm)
-   (case output-type
-     [(exe) (ir-to-exe (infileparam))]
-     [(llvm) (error "Output type LLVM not supported for input type LLVM. You already have the file!")]
-     [else (error "I figured this was unreachable??")])]
-  [(scm)
-   (case output-type
-     [(llvm) (output-to-llvm)]
-     [(exe) (output-to-exe)]
-     [else (error "I figured this was unreachable??")])])
+; if all params are null then we are in library mode,
+; and we provide scm->llvm scm->exe and llvm->exe in library mode.
 
 
 
-(close-input-port input-port)
-(close-output-port output-port)
+
 
 
 

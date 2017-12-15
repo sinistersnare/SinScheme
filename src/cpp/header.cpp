@@ -2,6 +2,7 @@
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wreserved-id-macro"
+// gc.h has a macro __GC that is 'reserved', but i cant do anything about it.
 #include "gc.h"
 #pragma clang diagnostic pop
 

@@ -70,9 +70,11 @@ typedef enum {  Void=0, Null, Bool,
                 Hash, Set, Other} SinType;
 
 
+
+// Maybe std::variant instead of 2 value types would be good here?
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wpadded"
-// Maybe std::variant would be good here?
+// ignore padded because its just sayng that its gonna pad, and thats OK.
 typedef struct SinObj {
     u64* ptrvalue;
     u64 value;

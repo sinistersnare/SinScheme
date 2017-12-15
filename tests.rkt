@@ -9,6 +9,16 @@
 (require "src/racket/utils.rkt")
 (require "src/racket/closure-convert.rkt")
 
+#;
+(scm->exe (string-append "build/" (symbol->string (gensym 'genexe)) ".exe")
+          clang++-path compiler-flags libgc-obj-path libgc-include-dir
+          (string-append "build/" (symbol->string (gensym 'genheader)) ".ll"))
+; libgc-include-dir
+; libgc-obj-path
+; clang++-path
+; compiler-flags
+(require "sinscm.rkt")
+
 (define (make-test exp)
   (lambda ()
     (define top-level-result (eval-top-level exp))

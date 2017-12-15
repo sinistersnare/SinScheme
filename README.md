@@ -14,25 +14,40 @@ Boehm-GC is a required dependency. I am pretty sure it can be downloaded on home
 
 `$ brew install libgc`
 
+***Note***: you may need to edit `sinscm.rkt` to have the correct libgc path.
+You will see the comment.
+
 If you have easy instructions on how to do it for your platform, please send a PR!!!
+
+
 
 To compile a file `hello.sinscm` to some file `output.ll`:
 
-`$ racket sinscm.rkt -i hello.sinscm -o output.ll`
+`$ racket sinscm.rkt -i hello.sinscm -o output.ll -j scm -t llvm`
 
-The sinscm.rkt utility exists to create the LLVM IR code for you
+To compile that output file to an executable:
 
-To compile that to an executable, you can use clang as such:
+`$ racket sinscm.rkt -i output.ll -o hello.x -j llvm -t exe`
 
-`$ clang++ -o out.exe output.ll`
+***Or*** you can combine it:
 
-Now you have an executable that you should be able to run:
+`$ racket sinscm.rkt -i hello.sinscm -o hello.x -j scm -t exe`
 
-`$ ./out.exe`
+(the CLI args are a bit wonky-named, sorry...)
+
+Anyways, you can run the executable as with any:
+
+`$ ./hello.x`
+
 
 Enjoy!
 
+## Testing ##
+
+(tests.rkt is currently broken, use the sinscm.rkt CLI please to test output.)
+
 We also have a tests.rkt file, you can interact with as so:
+
 
 `$ racket tests.rkt ` will tell you the tests that you can run.
 `$ racket tests.rkt TESTNAME` will run the test TESTNAME
@@ -76,7 +91,6 @@ Implement a class SchemeKey or something that checks the types tag and hashes a 
 Also must have a deep equality check.
 
 
-
 This project doubles as a final project for the class,
 but it has since been open sourced with permission from my professor
 (see Extra Credit section
@@ -103,10 +117,5 @@ There are better Scheme ecompilers anyways! Go use them instead!
 
 This project uses external libraries listed here with their licenses:
 
-
-
-(psst. heres some quick helper functions for debugging)
-
-`racket sinscm.rkt -i hello.sinscm -o build/output.ll && clang++ -o x.x ./build/output.ll && ./x.x`
-`racket sinscm.rkt -i hello.sinscm -o build/output.ll && clang++ -o x.x ./build/output.ll`
-`racket sinscm.rkt -i hello.sinscm -o build/output.ll`
+Boehm-GC TODO: add license
+HAMT TODO: in general, TODO...
