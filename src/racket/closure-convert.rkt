@@ -211,12 +211,12 @@
   (define (to-llvm proc globals [indent-level 0])
     (match proc
       [`(proc (,fname ,xs ...) ,e)
-       (format "~adefine void @proc_~a(~a) {\n~a\n}"
+       (format "~adefine void @proc_~a(~a) {\n~a\n}\n"
                (ind indent-level) fname
                (make-args xs) (to-llvm e globals (add1 indent-level)))]
       [`(let ([,x (apply-prim ,op ,arglist)]) ,e)
        (define applyprimptr (gensym 'applyprimptr))
-       (format "~a\n~a\n~a\n~a"
+       (format "~a\n~a\n~a\n\n~a"
                (format "~a%~s = alloca %struct.SinObj*, align 8"
                        (ind indent-level) applyprimptr)
                (format "~a%~s = call %struct.SinObj* @~a(%struct.SinObj* %~s)"
@@ -233,7 +233,7 @@
            [`(,head . ,tail)
             (format "%struct.SinObj* %~s, ~a" head (layout-args tail))]))
        (define primptr (gensym 'primptr))
-       (format "~a\n~a\n~a\n~a"
+       (format "~a\n~a\n~a\n\n~a"
                (format "~a%~s = alloca %struct.SinObj*, align 8"
                        (ind indent-level) primptr)
                (format "~a%~s = call %struct.SinObj* @~a(~a)"
@@ -244,8 +244,8 @@
       ; TODO: can const_init_string be used here AKA is there another case of string?
       ; TODO: Also void (check all const_init_*).
       [`(let ([,x '#t]) ,e)
-       (define stackptr (gensym 'stackptr))
-       (format "~a\n~a\n~a\n~a"
+       (define stackptr (gensym 'true_stackptr))
+       (format "~a\n~a\n~a\n\n~a"
                (format "~a%~s = alloca %struct.SinObj*, align 8"
                        (ind indent-level) stackptr)
                (format "~a%~s = call %struct.SinObj* @const_init_true()"
@@ -254,8 +254,8 @@
                        (ind indent-level) x stackptr)
                (to-llvm e globals indent-level))]
       [`(let ([,x '#f]) ,e)
-       (define stackptr (gensym 'stackptr))
-       (format "~a\n~a\n~a\n~a"
+       (define stackptr (gensym 'false_stackptr))
+       (format "~a\n~a\n~a\n\n~a"
                (format "~a%~s = alloca %struct.SinObj*, align 8"
                        (ind indent-level) stackptr)
                (format "~a%~s = call %struct.SinObj* @const_init_false()"
@@ -264,8 +264,8 @@
                        (ind indent-level) x stackptr)
                (to-llvm e globals indent-level))]
       [`(let ([,x '()]) ,e)
-       (define stackptr (gensym 'stackptr))
-       (format "~a\n~a\n~a\n~a"
+       (define stackptr (gensym 'null_stackptr))
+       (format "~a\n~a\n~a\n\n~a"
                (format "~a%~s = alloca %struct.SinObj*, align 8"
                        (ind indent-level) stackptr)
                (format "~a%~s = call %struct.SinObj* @const_init_null()"
@@ -274,8 +274,8 @@
                        (ind indent-level) x stackptr)
                (to-llvm e globals indent-level))]
       [`(let ([,x ',(? integer? n)]) ,e)
-       (define stackptr (gensym 'stackptr))
-       (format "~a\n~a\n~a\n~a"
+       (define stackptr (gensym 'int_stackptr))
+       (format "~a\n~a\n~a\n\n~a"
                (format "~a%~s = alloca %struct.SinObj*, align 8"
                        (ind indent-level) stackptr)
                (format "~a%~s = call %struct.SinObj* @const_init_int(i64 ~a)"
@@ -288,9 +288,9 @@
        (define val (hash-ref globals encoded))
        (define stackregname (gensym 'stackreg))
        (define rawval (gensym 'rawsymstr))
-       (define stackptr (gensym 'stackptr))
+       (define stackptr (gensym 'symbol_stackptr))
        (if (hash-has-key? globals encoded)
-           (format "~a\n~a\n~a\n~a\n~a\n~a\n~a"
+           (format "~a\n~a\n~a\n~a\n~a\n~a\n\n~a"
                    (format "~a%~s = alloca %struct.SinObj*, align 8"
                            (ind indent-level) stackptr)
                    (format "~a%~s = alloca i8*, align 8" (ind indent-level) stackregname)
@@ -307,9 +307,9 @@
        (define val (hash-ref globals encoded))
        (define stackregname (gensym 'stackreg))
        (define rawval (gensym 'rawstrstr))
-       (define stackptr (gensym 'stackptr))
+       (define stackptr (gensym 'string_stackptr))
        (if (hash-has-key? globals encoded)
-           (format "~a\n~a\n~a\n~a\n~a\n~a\n~a"
+           (format "~a\n~a\n~a\n~a\n~a\n~a\n\n~a"
                    (format "~a%~s = alloca %struct.SinObj*, align 8"
                            (ind indent-level) stackptr)
                    (format "~a%~s = alloca i8*, align 8" (ind indent-level) stackregname)
@@ -323,7 +323,7 @@
            ((disp "DONT KNOW HOW TO LLVM-ENCODE:: " dat) "BAD-LLVM-IR-SORRY"))]
       ;; TESTME
       [`(let ([,x (env-ref ,env ,nat)]) ,e)
-       (define stackptr (gensym 'stackptr))
+       (define stackptr (gensym 'env_ref_stackptr))
        (format "~a\n~a\n~a\n~a"
                (format "~a%~s = alloca %struct.SinObj*, align 8"
                        (ind indent-level) stackptr)
@@ -334,18 +334,27 @@
                (to-llvm e globals indent-level))]
       ;; TESTME
       [`(let ([,x (make-closure ,fptrname ,freevars ...)]) ,e)
-       (define (place-freevars freevars pos)
-         (match freevars
-           [(? empty?) ""]
-           [`(,head . ,tail)
-            (format "~a\n~a"
-                    ; place each free variable in order in the closure.
-                    (format "~acall void @closure_place_freevar(%struct.SinObj* %~s, %struct.SinObj* %~s, i64 ~s)"
-                            (ind indent-level) x head pos)
-                    (place-freevars tail (add1 pos)))]))
-       (define stackptr (gensym 'stackptr))
+       (define (place-freevars freevars)
+         (define (layout freevars pos)
+           (match freevars
+             [(? empty?) ""]
+             [`(,head)
+              ; dont mind me, just here so less extraneous whitespace is added.
+              (format "~acall void @closure_place_freevar(%struct.SinObj* %~s, %struct.SinObj* %~s, i64 ~s)"
+                      (ind indent-level) x head pos)]
+             [`(,head . ,tail)
+              (format "~a\n~a"
+                      ; place each free variable in order in the closure.
+                      (format "~acall void @closure_place_freevar(%struct.SinObj* %~s, %struct.SinObj* %~s, i64 ~s)"
+                              (ind indent-level) x head pos)
+                      (layout tail (add1 pos)))]))
+         (if (empty? freevars)
+             ""
+             (string-append "\n" (layout freevars 0))))
+       (define stackptr (gensym 'make_closure_stackptr))
        (define fintname (gensym 'fintname))
-       (format "~a\n~a\n~a\n~a\n~a\n~a"
+       ; ~a~a becuase place-freevars places its own \n (in 0 freevars case, adds extraneous \n)
+       (format "~a\n~a\n~a~a\n~a\n\n~a"
                ; allocate space on stack for pointer (so GC doesnt collect it)
                (format "~a%~s = alloca %struct.SinObj*, align 8" (ind indent-level) stackptr)
                ; Convert function pointer to integer for storage purposes
@@ -355,7 +364,7 @@
                ; The second part is a vector, storing each free variable value.
                ; The API is found in header.cpp, closure_* family of functions.
                (format "~a%~s = call %struct.SinObj* @closure_alloc(i64 ~s, i64 %~s)" (ind indent-level) x (length freevars) fintname)
-               (place-freevars freevars 0)
+               (place-freevars freevars)
                (format "~astore %struct.SinObj* %~s, %struct.SinObj** %~s, align 8" (ind indent-level) x stackptr)
                (to-llvm e globals indent-level))]
       ;; TESTME
@@ -378,34 +387,22 @@
        (define intermediate-guard-val (gensym 'bool-value))
        (format "\n~a\n~a\n~a\n~a\n~a"
                (format "~a%~s = call i64 @is_truthy_value(%struct.SinObj* %~s)" (ind indent-level) intermediate-guard-val grd)
-               (format "~s%~s = icmp eq i64 %~s, 1" (ind indent-level) cmpr intermediate-guard-val)
+               (format "~a%~s = icmp eq i64 %~s, 1" (ind indent-level) cmpr intermediate-guard-val)
                (format "~abr i1 %~s, label %~s, label %~s" (ind indent-level) cmpr thenblock elseblock)
                (format "~a~s:\n~a" (ind indent-level) thenblock (to-llvm et globals (add1 indent-level)))
                (format "~a~s:\n~a" (ind indent-level) elseblock (to-llvm ef globals (add1 indent-level))))]))
   (define (layout-procs procs globals) (map (lambda (proc) (to-llvm (normalize-names proc) globals)) procs))
    ;; TODO: indentation changes wont affect this
-  (define (setup-main) "define i32 @main() {\n  call fastcc void @proc_main()\n  ret i32 0\n}")
+  (define (setup-main) "define i32 @main() {\n  call void @start_program()\n  call fastcc void @proc_main()\n  ret i32 0\n}\n")
   (define globals (get-globals procs))
   (string-append (layout-globals globals) "\n"
-                 "@VOID_TYPE = global i32 0" "\n"
-                 "@NULL_TYPE = global i32 1" "\n"
-                 "@BOOL_TYPE = global i32 2" "\n"
-                 "@CLOSURE_TYPE = global i32 3" "\n"
-                 "@CONS_TYPE = global i32 4" "\n"
-                 "@INT_TYPE = global i32 5" "\n"
-                 "@STR_TYPE = global i32 6" "\n"
-                 "@SYM_TYPE = global i32 7" "\n"
-                 "@VECTOR_TYPE = global i32 8" "\n"
-                 "@HASH_TYPE = global i32 9" "\n"
-                 "@SET_TYPE = global i32 10" "\n"
-                 "@OTHER_TYPE = global i32 11" "\n"
                  (setup-main) "\n"
-                 (string-join (reverse (layout-procs procs globals)) "\n")))
+                 (string-join (identity #;reverse (layout-procs procs globals)) "\n")))
 
 (define (layout-globals g-hash)
   (define (layout gs)
     (match gs
-      [(? empty?) "; end globals"]
+      [(? empty?) "; end string & symbol globals\n"]
       [`((,k . ,v) . ,tail)
        (format "~a\n~a"
                (format "@~a = private unnamed_addr constant [~a x i8] c\"~a\", align 8"

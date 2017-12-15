@@ -10,6 +10,12 @@ becuase that sounds like a fun post idea!
 
 ## Running The Compiler ##
 
+Boehm-GC is a required dependency. I am pretty sure it can be downloaded on homebrew:
+
+`$ brew install libgc`
+
+If you have easy instructions on how to do it for your platform, please send a PR!!!
+
 To compile a file `hello.sinscm` to some file `output.ll`:
 
 `$ racket sinscm.rkt -i hello.sinscm -o output.ll`
