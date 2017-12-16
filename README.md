@@ -8,7 +8,7 @@ For a comprehensive idea on how this works (from scheme to llvm ir),
 I would recommend you check the class webpage, or ask me to write a blog-post,
 becuase that sounds like a fun post idea!
 
-## Running The Compiler ##
+## Installing Dependencies ##
 
 Boehm-GC is a required dependency. I am pretty sure it can be downloaded on homebrew:
 
@@ -19,6 +19,7 @@ You will see the comment.
 
 If you have easy instructions on how to do it for your platform, please send a PR!!!
 
+## Running The Compiler ##
 
 
 To compile a file `hello.sinscm` to some file `output.ll`:
@@ -91,14 +92,6 @@ If you would like to contribute documentation feel free :)
 
 I am pretty sure this only works on 64bit machines, so dont try on 32bit.
 
-## TODO: ##
-
-`$ clang++ main.cpp /user/local/lib/libgc.a -pthread -o main`
-
-Implement a class SchemeKey or something that checks the types tag and hashes a key.
-Also must have a deep equality check.
-
-
 This project doubles as a final project for the class,
 but it has since been open sourced with permission from my professor
 (see Extra Credit section
@@ -110,20 +103,9 @@ unauthorized assistance on this assignment.
 
 ## License ##
 
-This project is currently unlicensed.
+This Compiler is licensed with the MIT license, so please feel free to use this,
+and modify the code. If you do use this, please say hi :)
 
-I did not write 100% of the code for this project,
-some files are provided by my professor
-(each file has a note describing who wrote it).
-Because of this, I am not comfortable licensing this how I would want it.
-
-There are better Scheme ecompilers anyways! Go use them instead!
-
-
-
-## Other Libraries ##
-
-This project uses external libraries listed here with their licenses:
-
-Boehm-GC TODO: add license
-HAMT TODO: in general, TODO...
+We currently use the Boehm-GC, a HAMT implementation in C++,
+and some other code written by Thomas Gilray for use in the compiler
+(particularly `utils.rkt` and `desugar.rkt`). I have provided license information in `LICENSE.md`
