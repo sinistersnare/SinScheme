@@ -25,11 +25,15 @@ To compile a file `hello.sinscm` to some file `output.ll`:
 
 `$ racket sinscm.rkt -i hello.sinscm -o output.ll -j scm -t llvm`
 
+This .ll file will be the combination of the header and the scheme code.
+So if you want to store the combined LLVM file, and compile it later,
+use this option.
+
 To compile that output file to an executable:
 
 `$ racket sinscm.rkt -i output.ll -o hello.x -j llvm -t exe`
 
-***Or*** you can combine it:
+***Or*** you can combine the two steps:
 
 `$ racket sinscm.rkt -i hello.sinscm -o hello.x -j scm -t exe`
 
