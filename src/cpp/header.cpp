@@ -21,6 +21,10 @@ extern "C" {
 // * Does not look like >, >= is implemented?
 // * vector-* methods have an Int as its first value, but treat it as a u64.
 //      Should there be a Len type that is pointer sized?
+// * Implement The following:
+//            set set->list set->remove set-union set-count set-first
+//            hash hash-keys hash-ref hash-set
+
 
 // called by @main();
 void start_program() {
