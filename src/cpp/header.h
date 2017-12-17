@@ -124,6 +124,7 @@ SinObj* prim_print_aux(SinObj*);
 // primitives in no particular order...
 
 SinObj* prim_print(SinObj*);
+SinObj* prim_println(SinObj*);
 SinObj* applyprim_print(SinObj*);
 SinObj* prim_equal_63(SinObj*,SinObj*);
 SinObj* applyprim_equal_63(SinObj*);

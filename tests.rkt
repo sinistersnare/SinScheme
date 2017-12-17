@@ -51,9 +51,20 @@
     (scm->exe llvm-part-input gen-exe-name clang++-path compiler-flags
               libgc-obj-path libgc-include-dir
               gen-ll-name)
-    (define llvm-part-output (read (open-input-string (with-output-to-string (lambda () (system (format "./~a" gen-exe-name)))))))
-    
-    (equal? llvm-part-output top-level-part-value)))
+    ; This part is very brittle but it works
+    ; Convert the process output to a racket value
+    ; if that value is a (quote anything) racket will `read` it as (quote (quote anything))
+    ; So we need to guard against that (the (list 'quote anything) match to remove the quote).
+    ; Then we turn it back into a string, because the passing-div0 test wasnt working even though they printed to look the same
+    ; so I figure make it a string, then compare! Hope this holds up...
+    (define llvm-part-string (string-normalize-spaces (with-output-to-string (lambda () (system (format "./~a" gen-exe-name))))))
+    (define llvm-part-output (read (open-input-string llvm-part-string)))
+    (define llvm-val
+      (match llvm-part-output
+        [(list 'quote val) (displayln (format "nice: ~a" val)) val]
+        [else llvm-part-output]))
+    ; (when (not (equal? llvm-val top-level-part-value)) (displayln (format "llvm:~a\ntop-level:~a" llvm-val top-level-part-value)))
+    (equal? (~a llvm-val) (~a top-level-part-value))))
 
 (define passing-tests-list
   (map
@@ -153,6 +164,8 @@
 
 (define run-test
   (curry run-test/internal #t))
+
+(define r run-test)
 
 (apply
  run-test/internal

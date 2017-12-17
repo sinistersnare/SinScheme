@@ -207,6 +207,46 @@ SinObj* const_init_symbol(char* s) {
 SinObj* print_cons(SinObj*);
 SinObj* print_vector(SinObj*);
 
+
+GEN_EXPECT1ARGLIST(applyprim_print,prim_print)
+SinObj* prim_print(SinObj* obj) {
+    SinType typ = obj->type;
+
+    switch (typ) {
+    case Null:
+        printf("'()");
+        break;
+    case Sym:
+        printf("'%s", unwrap_sym(obj, "prim_print Sym case."));
+        break;
+    case Void:
+        // print nothing on void.
+        break;
+    case Cons:
+        printf("'(");
+        print_cons(obj);
+        printf(")");
+        break;
+    case Bool:
+    case Closure:
+    case Int:
+    case Str:
+    case Vector:
+    case Hash:
+    case Set:
+    case Other:
+        prim_print_aux(obj);
+        break;
+    }
+    return const_init_void();
+}
+
+SinObj* prim_println(SinObj* obj) {
+    prim_print(obj);
+    printf("\n");
+    return const_init_void();
+}
+
 SinObj* prim_print_aux(SinObj* obj) {
     SinType typ = obj->type;
 
@@ -258,34 +298,6 @@ SinObj* prim_print_aux(SinObj* obj) {
     }
     return const_init_void();
 }
-
-GEN_EXPECT1ARGLIST(applyprim_print,prim_print)
-SinObj* prim_print(SinObj* obj) {
-    SinType typ = obj->type;
-
-    switch (typ) {
-    case Null:
-        printf("'()");
-        break;
-    case Sym:
-        printf("'%s", unwrap_sym(obj, "prim_print Sym case."));
-        break;
-    case Void:
-    case Bool:
-    case Closure:
-    case Cons:
-    case Int:
-    case Str:
-    case Vector:
-    case Hash:
-    case Set:
-    case Other:
-        prim_print_aux(obj);
-        break;
-    }
-    return const_init_void();
-}
-
 
 SinObj* print_cons(SinObj* obj) {
     SinObj* cons = unwrap_cons(obj, "print_cons");
@@ -656,11 +668,11 @@ SinObj* prim_procedure_63(SinObj* obj) { // procedure?
 /// Returns a SinObj of type Bool
 GEN_EXPECT1ARGLIST(applyprim_null_63, prim_null_63)
 SinObj* prim_null_63(SinObj* obj) { // null?
-    SinObj* ret = alloc(1);
-    ret->value = obj->type == Null;
-    ret->ptrvalue = NULL;
-    ret->type = Bool;
-    return ret;
+    if (obj->type == Null) {
+        return const_init_true();
+    } else {
+        return const_init_false();
+    }
 }
 
 

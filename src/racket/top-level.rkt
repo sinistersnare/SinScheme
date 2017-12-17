@@ -210,6 +210,10 @@
        (layout-vector-set! vec pos newval)]
       [`(vector-ref ,vec ,pos)
        (layout-vector-ref vec pos)]
+      [`(/)
+       (T '(raise '(div-takes-at-least-1-arg)))]
+      [`(/ ,onearg)
+       (T `(/ 1 ,onearg))]
       [`(/ ,numerator . ,denominators)
        (if (empty? denominators)
            `(/ ,numerator)

@@ -224,6 +224,20 @@
                (format "~astore volatile %struct.SinObj* %~s, %struct.SinObj** %~s, align 8"
                        (ind indent-level) x applyprimptr)
                (to-llvm e globals indent-level))]
+      [`(let ([,x (prim - ,single-arg)]) ,ebody)
+       ; special case becuase simplify-ir handles this wrong.
+       (define stackptr (gensym 'prim_minus_stackptr))
+       (define consnil (gensym 'consnil))
+       (define arglist (gensym 'arglist))
+       (format "~a\n~a\n~a\n~a\n~a\n~a"
+               (format "~a%~a = alloca %struct.SinObj*, align 8" (ind indent-level) stackptr)
+               (format "~a%~a = call %struct.SinObj* @const_init_null()" (ind indent-level) consnil)
+               (format "~a%~a = call %struct.SinObj* @prim_cons(%struct.SinObj* %~a, %struct.SinObj* %~a)"
+                       (ind indent-level) arglist single-arg consnil)
+               (format "~a%~a = call %struct.SinObj* @applyprim__45(%struct.SinObj* %~a)"
+                       (ind indent-level) x arglist)
+               (format "~astore volatile %struct.SinObj* %~a, %struct.SinObj** %~a, align 8" (ind indent-level) x stackptr)
+               (to-llvm ebody globals indent-level))]
       [`(let ([,x (prim ,op ,xs ...)]) ,e)
        (define (layout-args args)
          (match args

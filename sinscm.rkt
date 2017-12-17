@@ -86,19 +86,15 @@
             [(llvm)
              (case output-type
                [(exe)
-                (displayln "LLVMEXE")
-                (llvmir->exe (infileparam))]
+                (llvmir->exe (infileparam) clang++-path compiler-flags libgc-obj-path (outfileparam))]
                [(llvm)
-                (displayln "LLVMLLVM")
                 (error "Output type LLVM not supported for input type LLVM. You already have the file!")]
                [else (error "I figured this was unreachable??")])]
             [(scm)
              (case output-type
                [(llvm)
-                (displayln "SCMLLVM")
                 (scm->llvmir input-port)]
                [(exe)
-                (displayln "SCMEXE")
                 (scm->exe input-port (outfileparam) clang++-path compiler-flags libgc-obj-path libgc-include-dir (gen-header-name))]
                [else (error "I figured this was unreachable??")])])
           (close-input-port input-port)

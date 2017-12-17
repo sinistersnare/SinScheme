@@ -54,7 +54,9 @@ We also have a tests.rkt file, you can interact with as so:
 
 
 `$ racket tests.rkt` will tell you the tests that you can run.
+
 `$ racket tests.rkt TESTNAME` will run the test TESTNAME
+
 `$ racket tests.rkt all` will run all tests.
 
 There is currently something going on with the order tests,

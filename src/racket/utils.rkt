@@ -44,13 +44,13 @@
         "clang++")))
 
 (define prims-list '(= > < <= >= + - * /
-                     cons? null? cons car cdr list first second third fourth fifth list
+                     cons? null? cons car cdr list first second third fourth fifth
                      length list-tail drop take member memv map append foldl foldr
                      vector? vector make-vector vector-ref vector-set! vector-length
                      set set->list list->set set-add set-union set-count set-first set-rest set-remove
                      hash hash-ref hash-set hash-count hash-keys hash-has-key? hash?
                      list? void? promise? procedure? number? integer?
-                     error void print display write exit halt
+                     error void print println display write exit halt
                      eq? eqv? equal? not))
 (define ok-set (list->set (string->list "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789$")))
 (define (c-name s)
