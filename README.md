@@ -21,6 +21,7 @@ If you have easy instructions on how to do it for your platform, please send a P
 
 ## Running The Compiler ##
 
+(right now, we dont clear the `build/` folder, so make sure to clear it out once in a while...)
 
 To compile a file `hello.sinscm` to some file `output.ll`:
 
@@ -44,8 +45,8 @@ Anyways, you can run the executable as with any:
 
 `$ ./hello.x`
 
-
 Enjoy!
+
 
 ## Testing ##
 

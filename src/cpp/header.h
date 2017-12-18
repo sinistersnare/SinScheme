@@ -2,14 +2,14 @@
 
 #define ASSERT_TYPE(obj,expected,msg, fnname) if (((obj).type) != (expected)) {fatal_errf(msg, fnname);}
 
-#define fatal_err(format) {\
+#define fatal_err(format) { \
         printf("Fatal library run-time error: "); \
         printf(format); \
         printf("\n"); \
         exit(1); \
     }
 
-#define fatal_errf(format, arg) {\
+#define fatal_errf(format, arg) { \
         printf("Fatal library run-time error: "); \
         printf(format, arg); \
         printf("\n"); \
@@ -85,6 +85,7 @@ typedef struct SinObj {
 
 void start_program();
 SinObj* alloc(const u64);
+SinObj* make_predicate(bool);
 
 
 SinObj* closure_alloc(const u64 amt_freevars, u64 cloval);
@@ -124,8 +125,9 @@ SinObj* prim_print_aux(SinObj*);
 // primitives in no particular order...
 
 SinObj* prim_print(SinObj*);
-SinObj* prim_println(SinObj*);
 SinObj* applyprim_print(SinObj*);
+SinObj* prim_println(SinObj*);
+SinObj* applyprim_println(SinObj*);
 SinObj* prim_equal_63(SinObj*,SinObj*);
 SinObj* applyprim_equal_63(SinObj*);
 SinObj* prim_number_63(SinObj*);

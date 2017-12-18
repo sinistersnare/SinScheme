@@ -61,7 +61,7 @@
     (define llvm-part-output (read (open-input-string llvm-part-string)))
     (define llvm-val
       (match llvm-part-output
-        [(list 'quote val) (displayln (format "nice: ~a" val)) val]
+        [(list 'quote val) val]
         [else llvm-part-output]))
     ; (when (not (equal? llvm-val top-level-part-value)) (displayln (format "llvm:~a\ntop-level:~a" llvm-val top-level-part-value)))
     (equal? (~a llvm-val) (~a top-level-part-value))))

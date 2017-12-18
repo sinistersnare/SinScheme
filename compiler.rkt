@@ -97,17 +97,17 @@
 (define header-location "./src/cpp/header.cpp")
 
 (define (scm->llvmir in-port out-port clang-path all-compiler-flags
-                     libgc-include-dir-path output-llvm-ir-header-name)
+                     libgc-include-dir-path compiled-prelude-name)
   ; Compile the header file into llvm-ir
-  (system (format "~s ~a ~a -I~s -S -emit-llvm -o ~s"
-                  clang-path all-compiler-flags header-location libgc-include-dir-path output-llvm-ir-header-name))
+  (system (format "~a ~a ~a -I~s -S -emit-llvm -o ~a"
+                  clang-path all-compiler-flags header-location libgc-include-dir-path compiled-prelude-name))
   ; Compile Scheme code to llvm-ir
   (define compiled-code
     (let ([compiled-str (open-output-string)])
       (compile-program in-port compiled-str)
       (get-output-string compiled-str)))
   ; create a complete llvm program with prelude.
-  (define complete-program (string-append (file->string output-llvm-ir-header-name) "\n\n;;;;;;;End Prelude;;;;;;;\n\n" compiled-code))
+  (define complete-program (string-append (file->string compiled-prelude-name) "\n\n;;;;;;;End Prelude;;;;;;;\n\n" compiled-code))
   (display complete-program out-port))
 
 (define (llvmir->exe combined-ir-filepath clang-path all-compiler-flags libgc-lib-path outfilename)

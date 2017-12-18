@@ -6,6 +6,8 @@
 #include "gc.h"
 #pragma clang diagnostic pop
 
+/*#include "hamt/hamt.h"*/
+
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -16,9 +18,7 @@
 
 extern "C" {
 
-
 // TODO:
-// * Does not look like >, >= is implemented?
 // * vector-* methods have an Int as its first value, but treat it as a u64.
 //      Should there be a Len type that is pointer sized?
 // * Implement The following:
@@ -100,12 +100,15 @@ SinObj* closure_env_get(SinObj* clo, u64 pos) {
 }
 
 
-
+/*
+SinObj* unwrap_hash(SinObj* hash_obj, const char* fn) {
+    ASSERT_TYPE(*hash_obj, Hash, "unwrap_hash takes a Hash object! in fn %s", fn);
+    return reinterpret_cast<SinObj*>(hash_obj->ptrvalue);
+}*/
 
 SinObj* unwrap_cons(SinObj* cons_obj, const char* fn) {
     ASSERT_TYPE(*cons_obj, Cons, "unwrap_cons takes a Cons object! in fn %s", fn);
-    SinObj* c = reinterpret_cast<SinObj*>(cons_obj->ptrvalue);
-    return c;
+    return reinterpret_cast<SinObj*>(cons_obj->ptrvalue);
 }
 
 SinObj* unwrap_vector(SinObj* vec_obj, const char* fn) {
@@ -139,10 +142,7 @@ char* unwrap_sym(SinObj* sym_obj, const char* fn) {
 }
 
 u64 is_truthy_value(SinObj* obj) {
-    if (obj->type == Bool && (unwrap_bool(obj, "is_truthy_value") == 0)) {
-        return 0;
-    }
-    return 1;
+    return (obj->type == Bool && (unwrap_bool(obj, "is_truthy_value") == 0))?0:1;
 }
 
 // TODO: actual global objects for constant values like #t, #f or '() ?
@@ -241,6 +241,7 @@ SinObj* prim_print(SinObj* obj) {
     return const_init_void();
 }
 
+GEN_EXPECT1ARGLIST(applyprim_println, prim_println)
 SinObj* prim_println(SinObj* obj) {
     prim_print(obj);
     printf("\n");
@@ -592,11 +593,7 @@ int eq_helper(SinObj* a, SinObj* b) {
 /// Returns a SinObj* of type Bool
 GEN_EXPECT2ARGLIST(applyprim_eq_63, prim_eq_63)
 SinObj* prim_eq_63(SinObj* a, SinObj* b) { // eq?
-    if (eq_helper(a, b) == 1) {
-        return const_init_true();
-    } else {
-        return const_init_false();
-    }
+    return make_predicate(eq_helper(a, b) == 1);
 }
 
 
@@ -615,6 +612,9 @@ SinObj* prim_equal_63(SinObj* a, SinObj* b) { // equal?
 
 ////// Other Predicates
 
+SinObj* make_predicate(bool b) {
+    return b?const_init_true():const_init_false();
+}
 
 // TODO: return #t/#f constants here?
 
@@ -622,44 +622,28 @@ SinObj* prim_equal_63(SinObj* a, SinObj* b) { // equal?
 GEN_EXPECT1ARGLIST(applyprim_number_63, prim_number_63)
 SinObj* prim_number_63(SinObj* n) { // number?
     // TODO: floats not implemented lul.
-    SinObj* ret = alloc(1);
-    ret->value = n->type == Int;
-    ret->ptrvalue = NULL;
-    ret->type = Bool;
-    return ret;
+    return prim_integer_63(n);
 }
 
 
 /// Returns a SinObj of type Bool
 GEN_EXPECT1ARGLIST(applyprim_integer_63, prim_integer_63)
 SinObj* prim_integer_63(SinObj* n) { // integer?
-    SinObj* ret = alloc(1);
-    ret->value = n->type == Int;
-    ret->ptrvalue = NULL;
-    ret->type = Bool;
-    return ret;
+    return make_predicate(n->type == Int);
 }
 
 
 /// Returns a SinObj of type Bool
 GEN_EXPECT1ARGLIST(applyprim_void_63, prim_void_63)
 SinObj* prim_void_63(SinObj* obj) { // void?
-    SinObj* ret = alloc(1);
-    ret->value = obj->type == Void;
-    ret->ptrvalue = NULL;
-    ret->type = Bool;
-    return ret;
+    return make_predicate(obj->type == Void);
 }
 
 
 /// Returns a SinObj of type Bool
 GEN_EXPECT1ARGLIST(applyprim_procedure_63, prim_procedure_63)
 SinObj* prim_procedure_63(SinObj* obj) { // procedure?
-    SinObj* ret = alloc(1);
-    ret->value = obj->type == Closure;
-    ret->ptrvalue = NULL;
-    ret->type = Bool;
-    return ret;
+    return make_predicate(obj->type == Closure);
 }
 
 
@@ -668,22 +652,14 @@ SinObj* prim_procedure_63(SinObj* obj) { // procedure?
 /// Returns a SinObj of type Bool
 GEN_EXPECT1ARGLIST(applyprim_null_63, prim_null_63)
 SinObj* prim_null_63(SinObj* obj) { // null?
-    if (obj->type == Null) {
-        return const_init_true();
-    } else {
-        return const_init_false();
-    }
+    return make_predicate(obj->type == Null);
 }
 
 
 /// Returns a SinObj of type Bool
 GEN_EXPECT1ARGLIST(applyprim_cons_63, prim_cons_63)
 SinObj* prim_cons_63(SinObj* obj) { // cons?
-    SinObj* ret = alloc(1);
-    ret->value = obj->type == Cons;
-    ret->ptrvalue = NULL;
-    ret->type = Bool;
-    return ret;
+    return make_predicate(obj->type == Cons);
 }
 
 /// Returns a SinObj of type Cons
@@ -850,3 +826,45 @@ SinObj* prim_not(SinObj* b) { // not
 
 
 }
+
+
+/*
+/// Hash Object
+// hash hash-keys hash-ref hash-set
+
+// TODO: make SinObj a C++-style class. :(
+// Need to implement `operator==` and `u64 hash()`
+
+/// Takes a Cons-list of things to put in the Hash.
+Sinobj* applyprim_hash(SinObj* cur) {
+    if (cur->type != Cons || cur->type != Null) {
+        fatal_errf("applyprim_hash takes a list, but was given a %s", get_type_name(cur->type));
+    }
+    const hamt<SinObj, SinObj>* h = new ((hamt<SinObj,SinObj>*)GC_MALLOC(sizeof(hamt<SinObj,SinObj>))) hamt<SinObj,SinObj>();
+
+    bool over = false;
+    while (!over && cur->type == Cons) {
+        SinObj car, cdr, cadr, cddr;
+
+        _get_both(cur, &car, &cdr);
+        if (cdr.type == Null) {
+            fatal_err("applyprim_hash needs a value for its key!");
+        }
+        if (cdr.type == Cons) {
+            _get_both(&cdr, &cadr, &cddr);
+            // car and cadr are key and value, respectively.
+            h = h->insert(&car, &cadr);
+            cur = &cddr;
+        } else {
+            over = true;
+        }
+    }
+
+    SinObj* ret = alloc(1);
+    ret->type = Hash;
+    ret->value = 0;
+    ret->ptrvalue = reinterpret_cast<u64*>(h);
+    return ret;
+}
+*/
+

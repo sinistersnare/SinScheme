@@ -93,7 +93,7 @@
             [(scm)
              (case output-type
                [(llvm)
-                (scm->llvmir input-port)]
+                (scm->llvmir input-port output-port clang++-path compiler-flags libgc-include-dir (gen-header-name))]
                [(exe)
                 (scm->exe input-port (outfileparam) clang++-path compiler-flags libgc-obj-path libgc-include-dir (gen-header-name))]
                [else (error "I figured this was unreachable??")])])
