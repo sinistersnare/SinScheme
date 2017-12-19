@@ -63,7 +63,8 @@
       (match llvm-part-output
         [(list 'quote val) val]
         [else llvm-part-output]))
-    ; (when (not (equal? llvm-val top-level-part-value)) (displayln (format "llvm:~a\ntop-level:~a" llvm-val top-level-part-value)))
+    (when (not (equal? (~a llvm-val) (~a top-level-part-value)))
+      (displayln (format "llvm:~a\ntop-level:~a" (~a llvm-val) (~a top-level-part-value))))
     (equal? (~a llvm-val) (~a top-level-part-value))))
 
 (define passing-tests-list
@@ -127,10 +128,8 @@
                          count))]))
               0
               all-tests))
-     (display "Score on tests: ")
-     (display (/ (round (/ (* 10000 correct-count) (length all-tests))) 100.0))
-     (display "%")
-     (newline)]
+     (displayln (format "Score on tests: ~a%"
+                        (/ (round (/ (* 10000 correct-count) (length all-tests))) 100.0)))]
     [(list test-name)
      #:when (assoc test-name passing-tests)
      (match (assoc test-name passing-tests)

@@ -76,8 +76,7 @@ typedef enum {  Void=0, Null, Bool,
 #pragma clang diagnostic ignored "-Wpadded"
 // ignore padded because its just sayng that its gonna pad, and thats OK.
 typedef struct SinObj {
-    u64* ptrvalue;
-    u64 value;
+    u64* valueptr;
     SinType type;
 } SinObj;
 #pragma clang diagnostic pop
@@ -85,6 +84,7 @@ typedef struct SinObj {
 
 void start_program();
 SinObj* alloc(const u64);
+SinObj* alloc_atomic(const u64);
 SinObj* make_predicate(bool);
 
 
@@ -118,12 +118,15 @@ int eq_helper(SinObj*, SinObj*);
 int cons_eq_helper(SinObj* a, SinObj* b);
 int vec_eq_helper(SinObj* a, SinObj* b);
 
+u64 _get_vector_length(SinObj*);
 const char* get_type_name(SinType);
 void _get_both(SinObj*, SinObj*, SinObj*);
 u64 is_truthy_value(SinObj*);
 SinObj* prim_print_aux(SinObj*);
 // primitives in no particular order...
 
+SinObj* print_cons(SinObj*);
+SinObj* print_vector(SinObj*);
 SinObj* prim_print(SinObj*);
 SinObj* applyprim_print(SinObj*);
 SinObj* prim_println(SinObj*);

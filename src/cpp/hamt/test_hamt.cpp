@@ -23,9 +23,7 @@ public:
     const u64 y;
     const u64 z;
 
-    tuple(u64 x, u64 y, u64 z)
-        : x(x), y(y), z(z)
-    {}
+    tuple(u64 x, u64 y, u64 z) : x(x), y(y), z(z) {}
 
     u64 hash() const
     {

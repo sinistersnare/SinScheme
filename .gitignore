@@ -12,6 +12,10 @@ build/
 
 compiled
 
+##### Tests Related #####
+
+*.scm~ # because tests are .scm files.
+
 
 ##### C++ Related #####
 

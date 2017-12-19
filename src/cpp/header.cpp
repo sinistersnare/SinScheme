@@ -26,20 +26,33 @@ extern "C" {
 //            hash hash-keys hash-ref hash-set
 
 
-// called by @main();
+// called by `i32 @main();`
 void start_program() {
     GC_INIT();
 }
 
-// alloc amt SinObj's.
-// if you do alloc(sizeof(X)) then youre doing something wrong!!!
+/// alloc amt SinObj's.
+/// if you do alloc(sizeof(X)) then youre doing something wrong!!!
+/// Use alloc when you need to allocate a SinObj with a pointer in it
+/// This includes Cons, Vector, Hash, Closure, etc.
+/// If you are allocating something without a pointer, such as Int,
+/// you can still use this, but it is more efficient to use `alloc_atomic`.
 SinObj* alloc(const u64 amt) {
-    // return new SinObj[amt];
     return reinterpret_cast<SinObj*>(GC_MALLOC(sizeof(SinObj) * amt));
-    // return reinterpret_cast<SinObj*>(GC_MALLOC(8 * amt));
+}
+
+/// alloc_atomic allocates atomic SinObj's.
+/// This includes Int, Bool, and other non-pointer-containing objects.
+/// If you need to allocate a pointer that contains an pointer, use `alloc()`
+/// If you allocate something with a pointer (like a Vec) using this, you WILL
+/// Get unintentionally free'd pointers! Dont do it!
+SinObj* alloc_atomic(const u64 amt) {
+    return reinterpret_cast<SinObj*>(GC_MALLOC_ATOMIC(sizeof(SinObj) * amt));
 }
 
 ////////////// Objects
+
+///// Closures
 
 /// Returns a u64, which can be `inttoptr`d/`reinterpret`d
 /// into a (void (SinObj*, SinObj*)) function pointer.
@@ -48,12 +61,11 @@ u64 closure_get_fn_part(SinObj* clo) {
     // safe becuase right after using closure_get_fn_part
     // clo-app converts this a pointer and uses it.
     // so its not a hazard of getting collected or anything.
-    return reinterpret_cast<u64>(clo_obj[0].ptrvalue);
+    return reinterpret_cast<u64>(clo_obj[0].valueptr);
 }
 
 // Returns a vector object internally,
-// but it should be treated as an opaque object, accessed thru
-// closure_env_* API
+// but it should be treated as an opaque object, accessed thru closure_env_* API
 SinObj* closure_get_env_part(SinObj* clo) {
     SinObj* clo_obj = unwrap_clo(clo, "closure_get_env_part");
     return &clo_obj[1];
@@ -68,16 +80,14 @@ SinObj* closure_alloc(const u64 amt_freevars, u64 cloval) {
     SinObj* vec = prim_make_45vector(const_init_int(static_cast<s64>(amt_freevars)), const_init_int(0));
     SinObj clo_part;
     clo_part.type = Other; // TODO, layout of closures?
-    clo_part.value = 0;
     // another reinterpret (the first being in proc->llvm) to make sure this doesnt get swept.
-    clo_part.ptrvalue = reinterpret_cast<u64*>(cloval);
+    clo_part.valueptr = reinterpret_cast<u64*>(cloval);
     clo_obj[0] = clo_part;
     clo_obj[1] = *vec;
 
     SinObj* ret = alloc(1);
     ret->type = Closure;
-    ret->value = 0;
-    ret->ptrvalue = reinterpret_cast<u64*>(clo_obj);
+    ret->valueptr = reinterpret_cast<u64*>(clo_obj);
     return ret;
 }
 
@@ -99,7 +109,6 @@ SinObj* closure_env_get(SinObj* clo, u64 pos) {
     return prim_vector_45ref(vec, const_init_int(static_cast<s64>(pos)));
 }
 
-
 /*
 SinObj* unwrap_hash(SinObj* hash_obj, const char* fn) {
     ASSERT_TYPE(*hash_obj, Hash, "unwrap_hash takes a Hash object! in fn %s", fn);
@@ -108,105 +117,95 @@ SinObj* unwrap_hash(SinObj* hash_obj, const char* fn) {
 
 SinObj* unwrap_cons(SinObj* cons_obj, const char* fn) {
     ASSERT_TYPE(*cons_obj, Cons, "unwrap_cons takes a Cons object! in fn %s", fn);
-    return reinterpret_cast<SinObj*>(cons_obj->ptrvalue);
+    return reinterpret_cast<SinObj*>(cons_obj->valueptr);
 }
 
 SinObj* unwrap_vector(SinObj* vec_obj, const char* fn) {
     ASSERT_TYPE(*vec_obj, Vector, "unwrap_vector takes a Vector object! in fn %s", fn);
-    return reinterpret_cast<SinObj*>(vec_obj->ptrvalue);
+    return reinterpret_cast<SinObj*>(vec_obj->valueptr);
 }
 
 SinObj* unwrap_clo(SinObj* clo_obj, const char* fn) {
     ASSERT_TYPE(*clo_obj, Closure, "unwrap_clo takes a Closure object! in fn %s", fn);
-    return reinterpret_cast<SinObj*>(clo_obj->ptrvalue);
+    return reinterpret_cast<SinObj*>(clo_obj->valueptr);
 }
 
 s64 unwrap_int(SinObj* int_obj, const char* fn) {
     ASSERT_TYPE(*int_obj, Int, "unwrap_int takes an Int object! in fn %s", fn);
-    return static_cast<s64>(int_obj->value);
+    return reinterpret_cast<s64>(int_obj->valueptr);
 }
 
 u64 unwrap_bool(SinObj* bool_obj, const char* fn) {
     ASSERT_TYPE(*bool_obj, Bool, "unwrap_bool takes a Bool object! in fn %s", fn);
-    return bool_obj->value;
+    return reinterpret_cast<u64>(bool_obj->valueptr);
 }
 
 char* unwrap_str(SinObj* str_obj, const char* fn) {
     ASSERT_TYPE(*str_obj, Str, "unwrap_str takes a Str object! in fn %s", fn);
-    return reinterpret_cast<char*>(str_obj->ptrvalue);
+    return reinterpret_cast<char*>(str_obj->valueptr);
 }
 
 char* unwrap_sym(SinObj* sym_obj, const char* fn) {
     ASSERT_TYPE(*sym_obj, Sym, "unwrap_sym takes a Sym object! in fn %s", fn);
-    return reinterpret_cast<char*>(sym_obj->ptrvalue);
+    return reinterpret_cast<char*>(sym_obj->valueptr);
 }
 
 u64 is_truthy_value(SinObj* obj) {
-    return (obj->type == Bool && (unwrap_bool(obj, "is_truthy_value") == 0))?0:1;
+    return (obj->type == Bool && (unwrap_bool(obj, "is_truthy_value") == false))?false:true;
 }
 
 // TODO: actual global objects for constant values like #t, #f or '() ?
 
 SinObj* const_init_int(s64 i) {
-    SinObj* ret = alloc(1);
-    ret->value = static_cast<u64>(i);
-    ret->ptrvalue = NULL;
+    SinObj* ret = alloc_atomic(1);
+    ret->valueptr = reinterpret_cast<u64*>(i);
     ret->type = Int;
     return ret;
 }
 
 SinObj* const_init_void() {
-    SinObj* ret = alloc(1);
-    ret->value = 0;
-    ret->ptrvalue = NULL;
+    SinObj* ret = alloc_atomic(1);
+    ret->valueptr = NULL;
     ret->type = Void;
     return ret;
 }
 
 SinObj* const_init_null() {
-    SinObj* ret = alloc(1);
-    ret->value = 0;
-    ret->ptrvalue = NULL;
+    SinObj* ret = alloc_atomic(1);
+    ret->valueptr = NULL;
     ret->type = Null;
     return ret;
 }
+
 SinObj* const_init_true() {
-    SinObj* ret = alloc(1);
-    ret->value = 1;
-    ret->ptrvalue = NULL;
+    SinObj* ret = alloc_atomic(1);
+    ret->valueptr = reinterpret_cast<u64*>(true);
     ret->type = Bool;
     return ret;
 }
 
 SinObj* const_init_false() {
-    SinObj* ret = alloc(1);
-    ret->value = 0;
-    ret->ptrvalue = NULL;
+    SinObj* ret = alloc_atomic(1);
+    ret->valueptr = reinterpret_cast<u64*>(false);
     ret->type = Bool;
     return ret;
 }
 
 SinObj* const_init_string(char* s) {
     SinObj* ret = alloc(1);
-    ret->ptrvalue = reinterpret_cast<u64*>(s);
-    ret->value = 0;
+    ret->valueptr = reinterpret_cast<u64*>(s);
     ret->type = Str;
     return ret;
 }
 
 SinObj* const_init_symbol(char* s) {
     SinObj* ret = alloc(1);
-    ret->ptrvalue = reinterpret_cast<u64*>(s);
-    ret->value = 0;
+    ret->valueptr = reinterpret_cast<u64*>(s);
     ret->type = Sym;
     return ret;
 }
 
-
 ////// Printing
-SinObj* print_cons(SinObj*);
-SinObj* print_vector(SinObj*);
-
 
 GEN_EXPECT1ARGLIST(applyprim_print,prim_print)
 SinObj* prim_print(SinObj* obj) {
@@ -258,14 +257,16 @@ SinObj* prim_print_aux(SinObj* obj) {
     case Null:
         printf("()");
         break;
-    case Bool:
-        if (obj->value == 0) {
+    case Bool: {
+        u64 bv = unwrap_bool(obj, "prim_print_aux bool case");
+        if (bv == 0) {
             printf("#f");
-        } else if (obj->value == 1) {
+        } else if (bv == 1) {
             printf("#t");
         } else {
-            printf("Unknown Boolean value: %llu", obj->value);
+            printf("Unknown Boolean value: %llu", bv);
         }
+    }
         break;
     case Closure:
         printf("#<procedure>");
@@ -294,7 +295,7 @@ SinObj* prim_print_aux(SinObj* obj) {
         printf("Sets not currently supported!");
         break;
     case Other:
-        printf("(print v); unrecognized value %llu",reinterpret_cast<u64>(obj->ptrvalue));
+        printf("(print v); unrecognized value %llu", reinterpret_cast<u64>(obj->valueptr));
         break;
     }
     return const_init_void();
@@ -333,10 +334,9 @@ SinObj* print_cons(SinObj* obj) {
     return const_init_void();
 }
 
-
 SinObj* print_vector(SinObj* obj) {
     SinObj* vector = unwrap_vector(obj, "print_vector");
-    u64 len = vector[0].value;
+    u64 len = _get_vector_length(obj);
     printf("#("); // sad face
     for (u64 i = 1; i <= len; i++) {
         if (i != 1) {
@@ -348,7 +348,6 @@ SinObj* print_vector(SinObj* obj) {
 
     return const_init_void();
 }
-
 
 const char* get_type_name(SinType type) {
     switch (type) {
@@ -380,7 +379,6 @@ const char* get_type_name(SinType type) {
 }
 
 
-
 // Primitives
 
 
@@ -390,6 +388,12 @@ SinObj* prim_halt(SinObj* val) { // halt
         printf("\n");
     }
     exit(0);
+}
+
+
+u64 _get_vector_length(SinObj* obj) {
+    SinObj* vec_obj = unwrap_vector(obj, "get_vector_length");
+    return reinterpret_cast<u64>(vec_obj[0].valueptr);
 }
 
 // TODO: use this more
@@ -416,10 +420,11 @@ SinObj* applyprim_vector(SinObj* curptr) { // apply vector
     }
     if (i == 256 && cur.type != Null) {fatal_err("Vectors larger than 256 elements are unimplemented. Sorry!");}
 
+    // i is amount of elements, + 1 is 1 object for size.
     SinObj* mem = alloc(i+1);
+
     SinObj size;
-    size.value = i;
-    size.ptrvalue = NULL;
+    size.valueptr = reinterpret_cast<u64*>(i);
     size.type = Int;
     mem[0] = size;
 
@@ -429,17 +434,16 @@ SinObj* applyprim_vector(SinObj* curptr) { // apply vector
     delete [] buf;
 
     SinObj* ret = alloc(1);
-    ret->ptrvalue = reinterpret_cast<u64*>(mem);
-    ret->value = 0;
+    ret->valueptr = reinterpret_cast<u64*>(mem);
     ret->type = Vector;
     return ret;
 }
 
 GEN_EXPECT2ARGLIST(applyprim_make_45vector, prim_make_45vector)
 SinObj* prim_make_45vector(SinObj* length_obj, SinObj* fill) { // make-vector
-    ASSERT_TYPE(*length_obj, Int, "First argument to make-vector must be an Int. %s", "prim_make_45vector");
 
-    u64 len = length_obj->value;
+    u64 len = static_cast<u64>(unwrap_int(length_obj, "make-vector"));
+     // i is amount of elements, + 1 is 1 object for size.
     SinObj* vec = alloc(1 + len);
 
     vec[0] = *length_obj;
@@ -449,8 +453,7 @@ SinObj* prim_make_45vector(SinObj* length_obj, SinObj* fill) { // make-vector
     }
 
     SinObj* ret = alloc(1);
-    ret->ptrvalue = reinterpret_cast<u64*>(vec);
-    ret->value = 0;
+    ret->valueptr = reinterpret_cast<u64*>(vec);
     ret->type = Vector;
     return ret;
 }
@@ -466,8 +469,8 @@ SinObj* prim_vector_45length(SinObj* vec) { // vector-length
 GEN_EXPECT2ARGLIST(applyprim_vector_45ref, prim_vector_45ref)
 SinObj* prim_vector_45ref(SinObj* vector, SinObj* pos) { // vector-ref
 
-    SinObj* vec = unwrap_vector(vector, "prim_vector_45ref vec");
-    u64 index_pos = static_cast<u64>(unwrap_int(pos, "prim_vector_45ref index_pos"));
+    SinObj* vec = unwrap_vector(vector, "vector-ref vec");
+    u64 index_pos = static_cast<u64>(unwrap_int(pos, "vector-ref index_pos"));
 
     // + 1 becuase length is at index 0, so need to push everything up 1.
     return &vec[index_pos + 1];
@@ -477,14 +480,13 @@ SinObj* prim_vector_45ref(SinObj* vector, SinObj* pos) { // vector-ref
 GEN_EXPECT3ARGLIST(applyprim_vector_45set_33, prim_vector_45set_33)
 SinObj* prim_vector_45set_33(SinObj* vec, SinObj* pos, SinObj* val) { // vector-set!
 
-    SinObj* vector = unwrap_vector(vec, "prim_vector_45set_33");
-    u64 index_pos = static_cast<u64>(unwrap_int(pos, "applyprim_vector_45set_33 index_pos"));
+    SinObj* vector = unwrap_vector(vec, "vector-set!");
+    u64 index_pos = static_cast<u64>(unwrap_int(pos, "apply vector-set! index_pos"));
 
     // + 1 becuase length is index 0, so need to push everything up 1.
     // unsure of safety of lifetimes just to deref val here.
     SinObj* newpos = alloc(1);
-    newpos->value = val->value;
-    newpos->ptrvalue = val->ptrvalue;
+    newpos->valueptr = val->valueptr;
     newpos->type = val->type;
     vector[index_pos + 1] = *newpos;
     return const_init_void();
@@ -596,13 +598,11 @@ SinObj* prim_eq_63(SinObj* a, SinObj* b) { // eq?
     return make_predicate(eq_helper(a, b) == 1);
 }
 
-
 /// Returns a SinObj of type Bool
 GEN_EXPECT2ARGLIST(applyprim_eqv_63, prim_eqv_63)
 SinObj* prim_eqv_63(SinObj* a, SinObj* b) { // eqv?
     return prim_eq_63(a, b); // TODO
 }
-
 
 /// Returns a SinObj of type Bool
 GEN_EXPECT2ARGLIST(applyprim_equal_63, prim_equal_63)
@@ -665,13 +665,13 @@ SinObj* prim_cons_63(SinObj* obj) { // cons?
 /// Returns a SinObj of type Cons
 GEN_EXPECT2ARGLIST(applyprim_cons, prim_cons)
 SinObj* prim_cons(SinObj* car, SinObj* cdr) { // cons
-    SinObj* ptr = alloc(2 * sizeof(SinObj));
+    SinObj* ptr = alloc(2);
     // unsure of safety of this.
     ptr[0] = *car;
     ptr[1] = *cdr;
+
     SinObj* ret = alloc(1);
-    ret->ptrvalue = reinterpret_cast<u64*>(ptr);
-    ret->value = 0;
+    ret->valueptr = reinterpret_cast<u64*>(ptr);
     ret->type = Cons;
     return ret;
 }
@@ -679,7 +679,7 @@ SinObj* prim_cons(SinObj* car, SinObj* cdr) { // cons
 /// Takes a Cons and returns its car
 GEN_EXPECT1ARGLIST(applyprim_car, prim_car)
 SinObj* prim_car(SinObj* cons_obj) { // car
-    SinObj* cons = unwrap_cons(cons_obj, "prim_car");
+    SinObj* cons = unwrap_cons(cons_obj, "car");
     return &cons[0];
 }
 
@@ -687,14 +687,14 @@ SinObj* prim_car(SinObj* cons_obj) { // car
 /// Takes a Cons and returns its cdr
 GEN_EXPECT1ARGLIST(applyprim_cdr, prim_cdr)
 SinObj* prim_cdr(SinObj* cons_obj) { // cdr
-    SinObj* cons = unwrap_cons(cons_obj, "prim_cdr");
+    SinObj* cons = unwrap_cons(cons_obj, "cdr");
     return &cons[1];
 }
 
 /// Returns a SinObj of type Int
 SinObj* prim__43(SinObj* a, SinObj* b) { // +
-    s64 a_val = unwrap_int(a, "prim__43 a");
-    s64 b_val = unwrap_int(b, "prim__43 b");
+    s64 a_val = unwrap_int(a, "+ a");
+    s64 b_val = unwrap_int(b, "+ b");
     return const_init_int(a_val + b_val);
 }
 
@@ -711,7 +711,7 @@ SinObj* applyprim__43(SinObj* cur) { // apply +
     while (cur->type == Cons) {
         SinObj car, cdr;
         _get_both(cur, &car, &cdr);
-        final += unwrap_int(&car, "applyprim__43 final");
+        final += unwrap_int(&car, "apply + final");
         cur = &cdr;
     }
     return const_init_int(final);
@@ -720,18 +720,18 @@ SinObj* applyprim__43(SinObj* cur) { // apply +
 /// Returns a SinObj of type Int
 SinObj* prim__45(SinObj* a, SinObj* b) { // -
     // a - b
-    s64 a_val = unwrap_int(a, "prim__45 a");
-    s64 b_val = unwrap_int(b, "prim__45 b");
+    s64 a_val = unwrap_int(a, "- a");
+    s64 b_val = unwrap_int(b, "- b");
 
     return const_init_int(a_val - b_val);
 }
 
 SinObj* applyprim__45(SinObj* list) { // apply -
-    SinObj* cons_obj = unwrap_cons(list, "applyprim__45");
+    SinObj* cons_obj = unwrap_cons(list, "apply -");
     SinObj car = cons_obj[0];
     SinObj cdr = cons_obj[1];
 
-    s64 carval = unwrap_int(&car, "applyprim__45 carval");
+    s64 carval = unwrap_int(&car, "apply - carval");
 
     if (cdr.type == Null) {
         return const_init_int(0 - carval);
@@ -753,28 +753,28 @@ SinObj* applyprim__45(SinObj* list) { // apply -
 /// Returns a SinObj of type Int
 SinObj* prim__42(SinObj* a, SinObj* b) { // *
     // a - b
-    return const_init_int(unwrap_int(a, "prim__42 a") * unwrap_int(b, "prim__42 b"));
+    return const_init_int(unwrap_int(a, "* a") * unwrap_int(b, "* b"));
 }
 
 SinObj* applyprim__42(SinObj* list) { // apply *
     if (list->type == Null) {
         return const_init_int(1);
     } else if (list->type == Cons) {
-        SinObj* cons_obj = unwrap_cons(list, "applyprim__42 cons_obj");
+        SinObj* cons_obj = unwrap_cons(list, "apply * cons_obj");
         SinObj car = cons_obj[0];
         SinObj cdr = cons_obj[1];
-        s64 carval = unwrap_int(&car, "applyprim__42 carval");
-        s64 cdrval = unwrap_int(applyprim__42(&cdr), "applyprim__42 cdrval");
+        s64 carval = unwrap_int(&car, "apply * carval");
+        s64 cdrval = unwrap_int(applyprim__42(&cdr), "apply * cdrval");
         return const_init_int(carval * cdrval);
     } else {
-        fatal_err("applyprim__42 taking a non-list argument!");
+        fatal_err("apply * taking a non-list argument!");
     }
 }
 
 /// Returns a SinObj of type Int
 SinObj* prim__47(SinObj* a, SinObj* b) { // /
-    s64 a_val = unwrap_int(a, "prim__47 a");
-    s64 b_val = unwrap_int(b, "prim__47 b");
+    s64 a_val = unwrap_int(a, "/ a");
+    s64 b_val = unwrap_int(b, "/ b");
     return const_init_int(a_val / b_val);
 }
 
@@ -787,7 +787,7 @@ SinObj* prim__47(SinObj* a, SinObj* b) { // /
 /// Takes 2 SinObj's of type Int
 /// Returns a SinObj of type Bool
 SinObj* prim__61(SinObj* a, SinObj* b) { // =
-    if (unwrap_int(a, "prim__61 a") == unwrap_int(b, "prim__61 a")) {
+    if (unwrap_int(a, "= a") == unwrap_int(b, "= b")) {
         return const_init_true();
     } else {
         return const_init_false();
@@ -797,35 +797,21 @@ SinObj* prim__61(SinObj* a, SinObj* b) { // =
 /// Takes 2 SinObj's of type Int
 /// Returns a SinObj of type Bool
 SinObj* prim__60(SinObj* a , SinObj* b) { // <
-    if (unwrap_int(a, "prim__60 a") < unwrap_int(b, "prim__60 b")) {
-        return const_init_true();
-    } else {
-        return const_init_false();
-    }
+    return make_predicate(unwrap_int(a, "< a") < unwrap_int(b, "< b"));
 }
 
 /// Takes 2 SinObj's of type Int
 /// Returns a SinObj of type Bool
 SinObj* prim__60_61(SinObj* a, SinObj* b) { // <=
-    if (unwrap_int(a, "prim__60_61 a") <= unwrap_int(b, "prim__60_61 b")) {
-        return const_init_true();
-    } else {
-        return const_init_false();
-    }
+    return make_predicate(unwrap_int(a, "<= a") <= unwrap_int(b, "<= b"));
 }
 
 /// Takes a SinObj of type Bool Returns a SinObj of type Bool
 GEN_EXPECT1ARGLIST(applyprim_not, prim_not)
 SinObj* prim_not(SinObj* b) { // not
-    if (b->value == 0) {
-        return const_init_true();
-    } else {
-        return const_init_false();
-    }
+    return make_predicate(unwrap_bool(b, "not") == false);
 }
 
-
-}
 
 
 /*
@@ -867,4 +853,8 @@ Sinobj* applyprim_hash(SinObj* cur) {
     return ret;
 }
 */
+
+
+} // end extern "C"
+
 

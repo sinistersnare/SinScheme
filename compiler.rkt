@@ -89,8 +89,8 @@
                  ; "-O2" ;;; TODO figure out why optimization fails
                  "-Wall"
                  "-Weverything"
-                 "-g"
-                 "-DGC_DEBUG"
+                 ; "-g"
+                 ; "-DGC_DEBUG"
                  )))
 
 ; should probably parameterize this too.
