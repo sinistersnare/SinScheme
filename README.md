@@ -72,19 +72,17 @@ This test must raise in both compile and interpret mode.
 
 Make sure that the test file-name ends in either `.scm` or `.sinscm`!
 
-
 ## Documentation ##
 
 There is docs in the `docs/` folder,
 currently there is a `runtime-error.md`, `primitives.md`, and a `language.md`,
 
-Hopefully there will be more when I come to it, and then I will
-hopefully remember to delete this run on sentence.
-
 `runtime-error.md` documents a subset of the runtime errors
-that this language supports
+that this language will give you.
 
 `primitives.md` documents each primitive that this language supports.
+It also provides documentation for the `Hash` object implemented in `docs/cpp/hash.h`
+(Part 3 Professor...)
 
 `language.md` provides a general guide of the language.
 

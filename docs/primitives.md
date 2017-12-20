@@ -562,21 +562,79 @@ Unimplemented...
 
 ## Hashes ##
 
-Unimplemented...
+Hashes are an extremely poorly-named Key-Value store datatype,
+Where the keys and values are any object, and the API is used to test membership,
+and get values out of it.
+
+Enjoy!
 
 ### hash ###
 
+Hash takes any even amount of arguments, and forms a K-V pair of them.
+
+```scheme
+(hash) ; ==> #hash()
+(hash 1 2 3 4) ; ==> #hash((1 . 2) (3 . 4))
+(hash 1 2 3 4 5) ; ==> Fatal library run-time error: Key not provided value in (hash)
+```
+
 ### hash-ref ###
+
+Retrieves a value in a hash. Also capable of taking in a default argument.
+
+```scheme
+(hash-ref (hash 1 2 3 4) 1) ; ==> 2
+(hash-ref (hash) 1) ; ==> GUARDABLE error.
+(hash-ref (hash 1 2 3 4) 'nope) ; ==> 'nope
+(guard (x [x 'nice]) (hash-ref (hash) 1)) ; ==> 'nice
+```
 
 ### hash-set ###
 
+Sets a value on a hash, and updates that value if the key already is in the hash.
+
+```scheme
+(hash-set (hash) 1 2) ; ==> #hash((1 . 2))
+(hash-set (hash 1 2) 1 3) ; ==> #hash((1 . 3))
+```
+
 ### hash-count ###
+
+Returns the amount of keys in a hash.
+
+```scheme
+(hash-count (hash)) ; ==> 0
+(hash-count (hash 1 2 3 4)) ; ==> 2
+```
 
 ### hash-keys ###
 
+Returns a list (satisfying `list?` predicate) or keys in the list.
+
+```scheme
+(hash-keys (hash 1 2 3 4)) ; ==> '(1 3)
+(hash-keys (hash)) ; ==> '()
+```
+
 ### hash-has-key? ###
 
+Returns a Bool on if the given hash contains a given key.
+
+```scheme
+(hash-has-key? (hash) 12) ; ==> #f
+(hash-has-key? (hash 1 2 3 4) 1) ; ==> #t
+```
+
 ### hash? ###
+
+A predicate testing the type of a given object.
+If the object is a Hash object, return #t, otherwise return #f.
+
+```scheme
+(hash? (hash)) ; ==> #t
+(hash? (hash 1 2 3 4)) ; ==> #t
+(hash? 'nope) ; ==> #f
+```
 
 
 ### error ###

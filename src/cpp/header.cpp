@@ -6,17 +6,21 @@
 #include "gc.h"
 #pragma clang diagnostic pop
 
-/*#include "hamt/hamt.h"*/
+#include "hash.h"
 
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <stdint.h>
 
 #include "header.h"
 
 
 extern "C" {
+
+
+// header.h doesnt include hash.h so i have prototypes here.
+SinObj* map_to_sin(Map* m);
+Map* unwrap_hash(SinObj* hash_obj, const char* fn);
 
 // TODO:
 // * vector-* methods have an Int as its first value, but treat it as a u64.
@@ -109,11 +113,11 @@ SinObj* closure_env_get(SinObj* clo, u64 pos) {
     return prim_vector_45ref(vec, const_init_int(static_cast<s64>(pos)));
 }
 
-/*
-SinObj* unwrap_hash(SinObj* hash_obj, const char* fn) {
+
+Map* unwrap_hash(SinObj* hash_obj, const char* fn) {
     ASSERT_TYPE(*hash_obj, Hash, "unwrap_hash takes a Hash object! in fn %s", fn);
-    return reinterpret_cast<SinObj*>(hash_obj->ptrvalue);
-}*/
+    return reinterpret_cast<Map*>(hash_obj->valueptr);
+}
 
 SinObj* unwrap_cons(SinObj* cons_obj, const char* fn) {
     ASSERT_TYPE(*cons_obj, Cons, "unwrap_cons takes a Cons object! in fn %s", fn);
@@ -289,7 +293,9 @@ SinObj* prim_print_aux(SinObj* obj) {
         print_vector(obj);
         break;
     case Hash:
-        printf("Hashes not currently supported!");
+        printf("#hash(");
+        print_hash(obj);
+        printf(")");
         break;
     case Set:
         printf("Sets not currently supported!");
@@ -345,6 +351,25 @@ SinObj* print_vector(SinObj* obj) {
         prim_print_aux(&vector[i]);
     }
     printf(")");
+
+    return const_init_void();
+}
+
+SinObj* print_hash(SinObj* obj) {
+    Map* map = unwrap_hash(obj, "print_hash");
+
+    while (map != NULL) {
+        printf("(");
+        prim_print_aux(map->key);
+        printf(" . ");
+        prim_print_aux(map->value);
+        printf(")");
+
+        if (map->next != NULL) {
+            printf(" ");
+        }
+        map = map->next;
+    }
 
     return const_init_void();
 }
@@ -814,46 +839,85 @@ SinObj* prim_not(SinObj* b) { // not
 
 
 
-/*
-/// Hash Object
-// hash hash-keys hash-ref hash-set
+///// Hash Object
 
-// TODO: make SinObj a C++-style class. :(
-// Need to implement `operator==` and `u64 hash()`
 
-/// Takes a Cons-list of things to put in the Hash.
-Sinobj* applyprim_hash(SinObj* cur) {
-    if (cur->type != Cons || cur->type != Null) {
-        fatal_errf("applyprim_hash takes a list, but was given a %s", get_type_name(cur->type));
-    }
-    const hamt<SinObj, SinObj>* h = new ((hamt<SinObj,SinObj>*)GC_MALLOC(sizeof(hamt<SinObj,SinObj>))) hamt<SinObj,SinObj>();
-
-    bool over = false;
-    while (!over && cur->type == Cons) {
-        SinObj car, cdr, cadr, cddr;
-
-        _get_both(cur, &car, &cdr);
-        if (cdr.type == Null) {
-            fatal_err("applyprim_hash needs a value for its key!");
-        }
-        if (cdr.type == Cons) {
-            _get_both(&cdr, &cadr, &cddr);
-            // car and cadr are key and value, respectively.
-            h = h->insert(&car, &cadr);
-            cur = &cddr;
-        } else {
-            over = true;
-        }
-    }
-
+SinObj* map_to_sin(Map* m) {
     SinObj* ret = alloc(1);
     ret->type = Hash;
-    ret->value = 0;
-    ret->ptrvalue = reinterpret_cast<u64*>(h);
+    ret->valueptr = reinterpret_cast<u64*>(m);
     return ret;
 }
-*/
 
+GEN_EXPECT2ARGLIST(applyprim_hash_45has_45key_63, prim_hash_45has_45key_63)
+SinObj* prim_hash_45has_45key_63(SinObj* hash, SinObj* key) { // hash-has-key?
+    Map* map = unwrap_hash(hash, "hash-has-key?");
+
+    return make_predicate(map_has_key(map, key));
+}
+
+SinObj* applyprim_hash(SinObj* cur) { // apply hash
+    Map* map = NULL;
+
+    while (cur->type != Null) {
+        SinObj *car = reinterpret_cast<SinObj*>(GC_MALLOC(1)),
+               *cdr = reinterpret_cast<SinObj*>(GC_MALLOC(1)),
+               *cadr = reinterpret_cast<SinObj*>(GC_MALLOC(1)),
+               *cddr = reinterpret_cast<SinObj*>(GC_MALLOC(1));
+        _get_both(cur, car, cdr);
+
+        if (cdr->type != Cons) {
+            fatal_err("Key not provided value in (hash)");
+        }
+        _get_both(cdr, cadr, cddr);
+
+        map = map_insert(map, car, cadr);
+        cur = cddr;
+    }
+    return map_to_sin(map);
+}
+
+GEN_EXPECT1ARGLIST(applyprim_hash_45keys, prim_hash_45keys)
+SinObj* prim_hash_45keys(SinObj* hash) { // hash-keys
+    Map* map = unwrap_hash(hash, "hash-keys");
+    return map_keys(map);
+}
+
+GEN_EXPECT2ARGLIST(applyprim_hash_45ref, prim_hash_45ref)
+SinObj* prim_hash_45ref(SinObj* hash, SinObj* key) { // hash-ref
+    Map* map = unwrap_hash(hash, "hash-ref");
+
+    SinObj* val = map_get(map, key);
+    if (val == NULL) {
+        fatal_err("Map did not have requested key");
+    }
+    return val;
+}
+
+
+GEN_EXPECT3ARGLIST(applyprim_hash_45set, prim_hash_45set)
+SinObj* prim_hash_45set(SinObj* hash, SinObj* key, SinObj* val) { // hash-set
+    Map* map = unwrap_hash(hash, "hash-set");
+
+    Map* new_map = map_insert(map, key, val);
+
+    return map_to_sin(new_map);
+}
+
+GEN_EXPECT1ARGLIST(applyprim_hash_63, prim_hash_63)
+SinObj* prim_hash_63(SinObj* hash) {
+    return make_predicate(hash->type == Hash);
+}
+
+GEN_EXPECT1ARGLIST(applyprim_hash_45count, prim_hash_45count)
+SinObj* prim_hash_45count(SinObj* hash) {
+    Map* map = unwrap_hash(hash, "hash-count");
+    u64 count = map_count(map);
+    return const_init_int(static_cast<s64>(count));
+}
+
+
+// hash hash-ref hash-set hash-count hash-keys hash-has-key? hash?
 
 } // end extern "C"
 

@@ -1,4 +1,7 @@
+#pragma once
+
 #include "stdio.h"
+#include <stdint.h>
 
 #define ASSERT_TYPE(obj,expected,msg, fnname) if (((obj).type) != (expected)) {fatal_errf(msg, fnname);}
 
@@ -58,6 +61,19 @@
         return fn_name(&car, &cadr, &caddr); \
     }
 
+
+
+// class SinObj {
+// public:
+//     u64* valueptr;
+//     SinType type;
+
+//     SinObj(u64* p, SinType t) : valueptr(p), type(t) {}
+
+//     u64 hash() const;
+//     bool operator==(const SinObj& other) const;
+// }
+
 extern "C" {
 typedef uint64_t u64;
 typedef int64_t s64;
@@ -86,7 +102,6 @@ void start_program();
 SinObj* alloc(const u64);
 SinObj* alloc_atomic(const u64);
 SinObj* make_predicate(bool);
-
 
 SinObj* closure_alloc(const u64 amt_freevars, u64 cloval);
 u64 closure_get_fn_part(SinObj*);
@@ -125,6 +140,7 @@ u64 is_truthy_value(SinObj*);
 SinObj* prim_print_aux(SinObj*);
 // primitives in no particular order...
 
+SinObj* print_hash(SinObj*);
 SinObj* print_cons(SinObj*);
 SinObj* print_vector(SinObj*);
 SinObj* prim_print(SinObj*);
@@ -187,4 +203,22 @@ SinObj* prim__60(SinObj* a , SinObj* b);
 SinObj* prim__60_61(SinObj* a, SinObj* b);
 SinObj* prim_not(SinObj*);
 SinObj* applyprim_not(SinObj*);
-}
+
+
+
+SinObj* applyprim_hash(SinObj*);
+SinObj* prim_hash_45has_45key_63(SinObj*, SinObj*);
+SinObj* applyprim_hash_45has_45key_63(SinObj*);
+SinObj* prim_hash_45keys(SinObj*);
+SinObj* applyprim_hash_45keys(SinObj*);
+SinObj* prim_hash_45ref(SinObj*, SinObj*);
+SinObj* applyprim_hash_45ref(SinObj*);
+SinObj* prim_hash_45set(SinObj*, SinObj*, SinObj*);
+SinObj* applyprim_hash_45set(SinObj*);
+SinObj* prim_hash_63(SinObj*);
+SinObj* applyprim_hash_63(SinObj*);
+SinObj* prim_hash_45count(SinObj*);
+SinObj* applyprim_hash_45count(SinObj*);
+
+
+} // end extern "C"

@@ -21,18 +21,16 @@
     (define file-contents (file->string test-file-path))
     (define guarded-code (format "(guard (~a ['~a #t] [else #f]) ~a (raise '~a))"
                                  exception-name didnt-fail-tag file-contents didnt-fail-tag))
-    
+    ; (display (format ""))
     (define top-level-part-port (open-input-string guarded-code))
     (define top-level-part-scm (read-begin top-level-part-port))
     (define top-level-part-value (eval-top-level top-level-part-scm))
 
     (define llvm-part-port (open-input-string guarded-code))
-    (when (not (directory-exists? "build")) (make-directory "build"))
-    (define gen-ll-name (string-append "build/" (symbol->string (gensym 'genheader)) ".ll"))
+    (define gen-ll-name (gen-header-name))
     (define gen-exe-name (string-append "build/" (symbol->string (gensym 'genexe)) ".exe"))
     (scm->exe llvm-part-port gen-exe-name clang++-path compiler-flags
-              libgc-obj-path libgc-include-dir
-              gen-ll-name)
+              libgc-obj-path libgc-include-dir gen-ll-name)
     (define llvm-part-value (read (open-input-string (with-output-to-string (lambda () (system (format "./~a" gen-exe-name)))))))
     (and top-level-part-value llvm-part-value)))
 
@@ -44,19 +42,18 @@
     (define top-level-part-scm (read-begin top-level-part-input))
     (define top-level-part-value (eval-top-level top-level-part-scm))
 
-    (define llvm-part-input (open-input-string file-contents))
-    (when (not (directory-exists? "build")) (make-directory "build"))
-    (define gen-ll-name (string-append "build/" (symbol->string (gensym 'genheader)) ".ll"))
-    (define gen-exe-name (string-append "build/" (symbol->string (gensym 'genexe)) ".exe"))
-    (scm->exe llvm-part-input gen-exe-name clang++-path compiler-flags
-              libgc-obj-path libgc-include-dir
-              gen-ll-name)
+
     ; This part is very brittle but it works
     ; Convert the process output to a racket value
     ; if that value is a (quote anything) racket will `read` it as (quote (quote anything))
     ; So we need to guard against that (the (list 'quote anything) match to remove the quote).
     ; Then we turn it back into a string, because the passing-div0 test wasnt working even though they printed to look the same
     ; so I figure make it a string, then compare! Hope this holds up...
+    (define llvm-part-input (open-input-string file-contents))
+    (define gen-ll-name (gen-header-name))
+    (define gen-exe-name (string-append "build/" (symbol->string (gensym 'genexe)) ".exe"))
+    (scm->exe llvm-part-input gen-exe-name clang++-path compiler-flags
+              libgc-obj-path libgc-include-dir gen-ll-name)
     (define llvm-part-string (string-normalize-spaces (with-output-to-string (lambda () (system (format "./~a" gen-exe-name))))))
     (define llvm-part-output (read (open-input-string llvm-part-string)))
     (define llvm-val

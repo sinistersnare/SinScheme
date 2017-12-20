@@ -165,6 +165,12 @@
         `(let ([,genmatchvar ,(T e)]) (cond ,@(map layout paired)
                                             (else (raise '"no matching clause! please give ec."))))
         `(let ([,genmatchvar ,(T e)]) (cond ,@(map layout paired))))) ; TODO make sure this cond fits desugar language
+
+  (define (make-cons vals)
+    (match vals
+      [(? empty?) ''()]
+      [`(,head . ,tail)
+       `(cons ,(T head) ,(make-cons tail))]))
   (define (T e)
     ;(displayln (format "got E:: ~s " e))
     (match e
@@ -206,6 +212,27 @@
        ; (displayln (format "got dat: ~s" dat))
        e]
       [`(quasiquote ,qdat) (layout-qq qdat 1)]
+
+      ; primitives
+      [`(hash . ,vals)
+       `(apply hash ,(make-cons vals))]
+      [`(hash-ref ,hash ,key)
+       (define hname (gensym 'hashname))
+       (define hkeyname (gensym 'hashkeyname))
+       `(let ([,hname ,(T hash)]
+              [,hkeyname ,(T key)])
+          (if ,(T `(hash-has-key? ,hname ,key))
+              (hash-ref ,(T hname) ,hkeyname)
+              (raise '(hash-key-doesnt-exist ,(T key)))))]
+      [`(hash-ref ,hash ,key ,def-val)
+       (define hname (gensym 'hashname))
+       (define hkeyname (gensym 'hashkeyname))
+       `(let ([,hname ,(T hash)]
+              [,hkeyname ,(T key)])
+          (if ,(T `(hash-has-key? ,hname ,key))
+              (hash-ref ,(T hname) ,hkeyname)
+              ,(T def-val)))]
+      
       [`(vector-set! ,vec ,pos ,newval)
        (layout-vector-set! vec pos newval)]
       [`(vector-ref ,vec ,pos)
@@ -219,6 +246,8 @@
            `(/ ,numerator)
            (layout-prim-div numerator denominators))]
       [(? prim? op) op] ;; HELP does this work? TEST
+
+      
       [(? symbol? x) x] ;; HELP does this work? TEST
       [(? natural? nat) `',nat] ;; HELP does this work?
       [(? string? str) `',str] ;; HELP does this work?
