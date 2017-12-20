@@ -20,7 +20,7 @@ ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEAL
 
 ## Thomas Gilray's Code ##
 
-Thomas Gilray provided code for the HAMT library and some code used in the Sin Scheme compiler itself.
+Thomas Gilray provided some code used in the Sin Scheme compiler itself.
 Both of those things are MIT licensed, and I have reproduced it here:
 
 Copyright <2017> <Thomas Gilray>

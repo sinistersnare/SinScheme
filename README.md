@@ -107,6 +107,5 @@ unauthorized assistance on this assignment.
 This Compiler is licensed with the MIT license, so please feel free to use this,
 and modify the code. If you do use this, please say hi :)
 
-We currently use the Boehm-GC, a HAMT implementation in C++,
-and some other code written by Thomas Gilray for use in the compiler
+We currently use the Boehm-GC, and code by Thomas Gilray,
 (particularly `utils.rkt` and `desugar.rkt`). I have provided license information in `LICENSE.md`
