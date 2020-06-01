@@ -19,6 +19,11 @@ You will see the comment.
 
 If you have easy instructions on how to do it for your platform, please send a PR!!!
 
+## TODO: ##
+* Support variable shadowing in desugar.
+* Support t0 => e0 cond-clause syntax in desugar.
+* Actually desugar dynamic-wind and dont add it to the wrapped runtime funcs.
+
 ## Running The Compiler ##
 
 (right now, we dont clear the `build/` folder, so make sure to clear it out once in a while...)
@@ -93,14 +98,10 @@ If you would like to contribute documentation feel free :)
 
 I am pretty sure this only works on 64bit machines, so dont try on 32bit.
 
-This project doubles as a final project for the class,
-but it has since been open sourced with permission from my professor
-(see Extra Credit section
-[here](https://www.cs.umd.edu/class/fall2017/cmsc430/final.html)).
-Becuase this doubles as a project I must add this line:
-
-> I, Davis Silverman, pledge on my honor that I have not given or received any
-unauthorized assistance on this assignment.
+This was completed as a final project for my undergraduate compilers course.
+[You can find the page here]
+([200~https://www.cs.umd.edu/class/fall2017/cmsc430/).
+It was a really fun class, you should take take a look at it!
 
 ## License ##
 
