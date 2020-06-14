@@ -19,6 +19,12 @@
         exit(1); \
     }
 
+#define GEN_EXPECT0ARGLIST(newname, fn_name) \
+    SinObj* newname(SinObj* lst) { \
+        if (lst->type != Null) {fatal_errf("Expected an empty list but got something else for function '%s'", #newname);} \
+        return fn_name(); \
+    }
+
 #define GEN_EXPECT1ARGLIST(newname, fn_name) \
     SinObj* newname(SinObj* lst) { \
         if (lst->type != Cons) {fatal_errf("Expected cons but got something else for function '%s'", #newname);} \
@@ -180,9 +186,11 @@ SinObj* applyprim_void_63(SinObj*);
 SinObj* prim_eq_63(SinObj*, SinObj*);
 SinObj* applyprim_eq_63(SinObj*);
 SinObj* prim_void();
-SinObj* applyprim_void();
+SinObj* applyprim_void(SinObj*);
 SinObj* prim_halt(SinObj*);
 SinObj* applyprim_halt(SinObj*);
+SinObj* prim_vector_63(SinObj*);
+SinObj* applyprim_vector_63(SinObj*);
 SinObj* prim_vector_45length(SinObj*);
 SinObj* applyprim_vector_45length(SinObj*);
 SinObj* prim_vector_45set_33(SinObj*, SinObj*, SinObj*);

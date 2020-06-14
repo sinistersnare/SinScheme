@@ -485,6 +485,13 @@ SinObj* prim_make_45vector(SinObj* length_obj, SinObj* fill) { // make-vector
     return ret;
 }
 
+GEN_EXPECT1ARGLIST(applyprim_vector_63, prim_vector_63)
+SinObj* prim_vector_63(SinObj* maybevec) {
+    return (maybevec->type == Vector)
+        ? const_init_true()
+        : const_init_false();
+}
+
 
 GEN_EXPECT1ARGLIST(applyprim_vector_45length, prim_vector_45length)
 SinObj* prim_vector_45length(SinObj* vec) { // vector-length
@@ -521,6 +528,8 @@ SinObj* prim_vector_45set_33(SinObj* vec, SinObj* pos, SinObj* val) { // vector-
 
 
 /// Returns a SinObj of type Void
+
+GEN_EXPECT0ARGLIST(applyprim_void, prim_void)
 SinObj* prim_void() { // void
     return const_init_void();
 }
@@ -640,7 +649,7 @@ SinObj* prim_equal_63(SinObj* a, SinObj* b) { // equal?
 ////// Other Predicates
 
 SinObj* make_predicate(bool b) {
-    return b?const_init_true():const_init_false();
+    return b ?const_init_true() : const_init_false();
 }
 
 // TODO: return #t/#f constants here?
