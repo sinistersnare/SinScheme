@@ -74,6 +74,7 @@
                  ; "-O2" ;;; TODO figure out why optimization fails
                  "-Wall"
                  "-Weverything"
+                 "-Wno-c++98-compat" ; so i can use nullptr unmolested.
                  ; "-g"
                  ; "-DGC_DEBUG"
                  )))

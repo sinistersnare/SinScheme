@@ -1,260 +1,143 @@
 #lang racket
 
 (provide top-level)
-
 (require "utils.rkt")
 
-; By Davis Silverman
-
 (define (top-level e)
-  (define (layout-vector-ref vecname pos)
-    `(if (>= ,(T pos) (vector-length ,(T vecname)))
-         (raise '(exception vector-out-of-bounds (vector-ref ,vecname ,pos)))
-         (vector-ref ,(T vecname) ,(T pos))))
-  (define (layout-vector-set! vecname pos newval)
-    `(if (>= ,(T pos) (vector-length ,(T vecname)))
-         (raise '(exception vector-set!-out-of-bounds (vector-set! ,vecname ,pos ,newval)))
-         (vector-set! ,(T vecname) ,(T pos) ,(T newval))))
-  (define (layout-prim-div num denoms)
-    (define d-names (map (lambda (_) (gensym 'denominator)) denoms))
-    (define bindings (map (lambda (denom name) `(,name ,(T denom))) denoms d-names))
-    (define conds (map (lambda (d-name) `(eq? ,d-name '0)) d-names))
-    `(let ,bindings (if (or ,@conds) (raise '(exception div-by-0 (/ ,num ,@denoms))) (/ ,(T num) ,@d-names))))
-  (define (layout-bodies bodies)
-    (define (get-bindings bodies)
-      (match bodies
-        [(? empty?) '()]
-        [`((define (,fname ,params ...) ,ebodies ...) . ,tail)
-         `((,fname ,(T `(lambda ,params (begin ,@ebodies)))) ,@(get-bindings tail))]
-        [`((define (,fname ,argnames ... . ,restvarname) ,ebodies ...) . ,tail)
-         `((,fname ,(T `(lambda (,@argnames . ,restvarname) (begin ,@ebodies)))) ,@(get-bindings tail))]
-        [`((define ,name ,exp) . ,tail)
-         `((,name ,(T exp)) ,@(get-bindings tail))]
-        [`((begin ,newbodies ...) . ,tail)
-         (get-bindings (append newbodies tail))]
-        [`(,head . ,tail)
-         (define binding (gensym 'begin-binding))
-         `((,binding ,(T head)) ,@(get-bindings tail))]
-        [else
-         (displayln (format "COULDNT FIGURE OUT WHAT BINDING WAS! ~s" bodies))
-         'BAD-GET-BODIES-OUTPUT]))
-    (define bindings (get-bindings bodies))
-    (match-define `(,last-binding ,_last-val) (last bindings))
-    `(letrec* ,bindings ,last-binding))
-  (define (layout-lettype lettype bindings bodies)
-    (define (bind bind+e)
-      (match-define `(,binding ,exp) bind+e)
-      `(,binding ,(T exp)))
-    `(,lettype ,(map bind bindings) ,(layout-bodies bodies)))
-  (define (layout-lambda params bodies)
-    (define (separate-params params) ;; TODO: test this
-      (foldr (lambda (el acc)
-               (match-define `(,pos ,def) acc)
-               (match el
-                 [`(,(? symbol? var) ,edefault)
-                  `(,pos ((,var ,(T edefault)) ,@def))]
-                 [(? symbol? var) (list (cons var pos) def)]))
-             `(() ()) params))
-    ; layout-regular for regular lambda (lambda (a b c) c)
-    ; layout-default for default arguments (lambda (a b c [d 1]) d)
-    (define (layout-regular pos bodies)
-      `(lambda ,pos ,(layout-bodies bodies)))
-    (define (layout-default pos defaults bodies)
-      (define (layout-case amt defrestname defaults bodies)
-        (define (layout-given-default-args defrestname given body)
-          (match given
-            [(? empty?) body]
-            [`(,head . ,tail)
-             (define nextrestname (gensym 'rest-of-defaults))
-             `(let* ([,head (car ,defrestname)] [,nextrestname (cdr ,defrestname)])
-                ,(layout-given-default-args nextrestname tail body))]))
-        (define-values (given notgiven) (split-at defaults amt))
-        `[[,amt]
-          ,(layout-given-default-args
-            defrestname (map car given)
-            `(let* ,notgiven ,(layout-bodies bodies)))])
-      (define defaultvarargsname (gensym 'defaultvarargs))
-      `(lambda (,@pos . ,defaultvarargsname)
-         (case (length ,defaultvarargsname)
-           ,@(append
-              (map (lambda (n) (layout-case n defaultvarargsname defaults bodies))
-                   (build-list (add1 (length defaults)) values))
-              '([else (raise '"Too many arguments given!")])))))
-    (define (layout params bodies)
-      (match-define `(,pos ,default) (separate-params params))
-      (if (= 0 (length default))
-          (layout-regular pos bodies)
-          (layout-default pos default bodies)))
-    (layout params bodies))
-  (define (layout-cond clauses) ;; TEST
-    (define (layout clause)
-      (match clause
-        [`(else ,e ,es ...)
-         `(else ,(layout-bodies (cons e es)))]
-        [`(,e0 ,e1 ,es ...)
-         `(,(T e0) ,(layout-bodies (cons e1 es)))]
-        [`(,e0) `(,(T e0))]))
-    (map layout clauses))
-  (define (layout-case exp clauses) ;; TEST
-    (define (layout clause)
-      (match clause
-        [`((,(? datum? ds) ...) ,e0 ,es ...)
-         `(,ds ,(layout-bodies (cons e0 es)))]
-        [`(else ,e0 ,es ...)
-         `(else ,(layout-bodies (cons e0 es)))]))
-    `(case ,(T exp) ,@(map layout clauses)))
-  (define (layout-qq qq level)
-    ; (displayln (format "matching... ~s" qq))
-    (match qq
-      [(? empty?) ''()]
-      [(list 'quasiquote e)
-       ; (displayln (format "QuasiQuote:: ~s" e))
-       `(list 'quasiquote ,(layout-qq e (add1 level)))]
-      [(list 'unquote e)
-       ; (displayln (format "Unquote:: ~s" e))
-       (cond
-         [(<= level 0) (raise (format "CANT UNQUOTE MORE! level ~s" level))]
-         [(= 1 level) (T e)]
-         [else (list 'list ''unquote (layout-qq e (sub1 level)))])]
-      [`(,head . ,tail)
-       ; (displayln (format "cons:: ~s" head))
-       `(cons ,(layout-qq head level) ,(layout-qq tail level))]
-      [else ; single element that we need to quote.
-       ; (displayln (format "outerElse:: ~s" qq))
-       (list 'quote qq)]))
-  ; FIXME: will not work with side-effect matchvars!
-  ; (match (set! a b) clauses) will fail!
-  (define (layout-match e clauses)
-    (define (layout pairing)
-      (match pairing
-        [`(, conditions ,bindings ,bodies) `((and ,@conditions) (let ,bindings ,(layout-bodies bodies)))]
-        [else (displayln (format "BAD PAIRING!!! ~s" pairing)) 'BADBADBADBADBADBADBADBADBADBADBAD]))
-    (define (get-conditions clause matchvar)
-      (match clause
-        ['else '()]
-        [(? natural? n) `((equal? ,(T n) ,(T matchvar)))]
-        [(? string? s) `((equal? ,(T s) ,(T matchvar)))]
-        [''() `((null? ,(T matchvar)))]
-        [`(quote ,(? cons? quotedlist))
-         `((equal? ,(list 'quote quotedlist) ,(T matchvar)))]
-        [`(cons ,p1 ,p2)
-         `((cons? ,matchvar) ,@(get-conditions p1 `(car ,matchvar)) ,@(get-conditions p2 `(cdr ,matchvar)))] ; TODO make sure this works
-        [#t `((equal? '#t ,(T matchvar)))] ; TODO make sure this works
-        [#f `((equal? '#f ,(T matchvar)))] ; TODO make sure this works
-        [`',dat `((equal? ,dat ,matchvar))] ; TODO make sure this works
-        [(? symbol? x) `()] ; TODO make sure this works
-        [`(? ,predicate ,otherpat) `((,predicate ,matchvar) ,@(get-conditions otherpat matchvar))] ; TODO make sure this works
-        [`(quasiquote ,qqpat) (get-conditions (layout-qq qqpat 1) matchvar)]))
-    (define (get-bindings clause matchvar)
-      (match clause
-        ['else '()]
-        [(or (? natural?) (? string?) #t #f) '()]
-        [`',dat '()] ; idk why this cant be in or clause
-        [(? symbol? x) `([,(T x) ,(T matchvar)])]
-        [`(? ,predicate ,otherpat) (get-bindings otherpat matchvar)]
-        [`(cons ,p1 ,p2) `(,@(get-bindings p1 `(car ,(T matchvar))) ,@(get-bindings p2 `(cdr ,(T matchvar))))]
-        [`(quasiquote ,qqpat) (get-bindings (layout-qq qqpat 1) matchvar)]))
-    (define genmatchvar (gensym 'matchvarbinding))
-    (define leftsides (map car clauses))
-    (define bodies (map cdr clauses))
-    (define conditions (map (lambda (x) (get-conditions x genmatchvar)) leftsides))
-    (define bindings (map (lambda (x) (get-bindings x genmatchvar)) leftsides))
-    (define paired (map list conditions bindings bodies))
-    (define no-else-clause (empty? (filter (lambda (el) (equal? el 'else)) leftsides)))
-    (if no-else-clause
-        `(let ([,genmatchvar ,(T e)]) (cond ,@(map layout paired)
-                                            (else (raise '"no matching clause! please give ec."))))
-        `(let ([,genmatchvar ,(T e)]) (cond ,@(map layout paired))))) ; TODO make sure this cond fits desugar language
-
-  (define (make-cons vals)
-    (match vals
-      [(? empty?) ''()]
-      [`(,head . ,tail)
-       `(cons ,(T head) ,(make-cons tail))]))
+  (define (T-qq qq [depth 0])
+      (match qq
+        [(list 'unquote exp)
+         (if (= depth 0)
+             (T exp)
+             (list 'list ''unquote (T-qq exp (sub1 depth))))]
+        [`(quasiquote ,qq1)
+         `(list 'quasiquote ,(T-qq qq1 (add1 depth)))]
+        [`(,qq1 . ,qrest)
+         `(cons ,(T-qq qq1 depth) ,(T-qq qrest depth))]
+        [else `(quote ,qq)]))
+  (define (T-pattern-guard k pat)
+    (match pat ; generate a boolean expression for "does k match pat"
+      [``,qq-pat
+       (T-pattern-guard k (T-qq qq-pat))]
+      [`(cons ,p0 ,p1)
+       (define k0 (gensym 'pk))
+       (define k1 (gensym 'pk))
+       `(and (cons? ,k)
+             (let ([,k0 (car ,k)]
+                   [,k1 (cdr ,k)])
+               (and ,(T-pattern-guard k0 p0)
+                    ,(T-pattern-guard k1 p1))))]
+      [`(? ,pred ,p0)
+       `(and (,(T pred) ,k) ,(T-pattern-guard k p0))]
+      [(? symbol? x)
+       ''#t]
+      [`(quote ,(? datum? d))
+       `(equal? ',d ,k)]
+      [(? datum? d)
+       `(equal? ',d ,k)]))
+  (define (T-pattern-bindings k pat thunk)
+    (match pat ; generate bindings for k, which matches pat, around (thunk)
+      [``,qq-pat
+       (T-pattern-bindings k (T-qq qq-pat) thunk)]
+      [`(cons ,p0 ,p1)
+       (define k0 (gensym 'pk))
+       (define k1 (gensym 'pk))
+       `(let ([,k0 (car ,k)]
+              [,k1 (cdr ,k)])
+          ,(T-pattern-bindings k0 p0 (lambda () (T-pattern-bindings k1 p1 thunk))))]
+      [`(? ,pred ,p0)
+       (T-pattern-bindings k p0 thunk)]
+      [(? symbol? x)
+       `(let ([,x ,k])
+          ,(thunk))]
+      [`(quote ,(? datum? d))
+       (thunk)]
+      [(? datum? d)
+       (thunk)]))
+  (define (extract-defs beg)
+    (define not-define?
+      (match-lambda [`(define . _) #f] [else #t]))
+    (match beg
+      [`(begin (define ,(? symbol? x) ,body) ,es ...)
+       (match-define (cons defs e+) (extract-defs `(begin . ,es)))
+       (cons (cons `[,x ,(T body)] defs) e+)]
+      [`(begin
+          (define (,(? symbol? f) ,(? symbol? xs) ... ,(list def-xs def-es) ...) ,bodies ...)
+          ,es ...)
+       (match-define (cons defs e+) (extract-defs `(begin . ,es)))
+       (cons (cons `[,f ,(T `(lambda (,@xs ,@(map list def-xs def-es)) . ,bodies))] defs) e+)]
+      [`(begin
+          (define (,(? symbol? f) ,(? symbol? xs) ... . ,(? symbol? args)) ,bodies ...)
+          ,es ...)
+       (match-define (cons defs e+) (extract-defs `(begin . ,es)))
+       (cons (cons `[,f ,(T `(lambda (,@xs . ,args) . ,bodies))] defs) e+)]
+      [`(begin (begin ,e0s ...) ,e1s ...)
+       (extract-defs `(begin ,@e0s ,@e1s))]
+      [`(begin)
+       (cons '() '(begin))]
+      [`(begin ,(? not-define? nde) ,es ...)
+       (let ([nde+ (T nde)])
+         (if (null? es)
+             (cons '() nde+)
+             (match-let ([(cons defs e+) (extract-defs `(begin . ,es))])
+               (cons (cons `(,(gensym 'tmp) ,nde+) defs) e+))))]))
+  (define (T-lambda-with-default-params xs def-xs def-es body+)
+    (define args (gensym 'args))
+    (define bindings
+      (let lp ([dxs def-xs] [des+ (map T def-es)]
+               [args args] [bindings '()])
+        (if (null? dxs)
+            bindings
+            (let* ([pair (gensym 'pair)]
+                   [new-args (gensym 'args)]
+                   [new-bindings (list
+                                  `(,pair (if (null? ,args)
+                                              (cons ,(car des+) '())
+                                              ,args))
+                                  `(,(car dxs) (car ,pair))
+                                  `(,new-args (cdr ,pair)))])
+              (lp (cdr dxs) (cdr des+) new-args (append bindings new-bindings))))))
+    (if (null? def-xs)
+        `(lambda ,xs ,body+)
+        `(lambda (,@xs . ,args) (let* ,bindings ,body+))))
   (define (T e)
-    ;(displayln (format "got E:: ~s " e))
     (match e
-      [`(letrec* (,bindings ...) ,ebody ,erest ...) (layout-lettype 'letrec* bindings (cons ebody erest))]
-      [`(letrec (,bindings ...) ,ebody ,erest ...) (layout-lettype 'letrec bindings (cons ebody erest))]
-      [`(let* (,bindings ...) ,ebody ,erest ...) (layout-lettype 'let* bindings (cons ebody erest))]
-      [`(let (,bindings ...) ,ebody ,erest ...)
-       (layout-lettype 'let bindings (cons ebody erest))]
-      [`(lambda (,params ...) ,ebody ,erest ...) (layout-lambda params (cons ebody erest))]
-      [`(lambda (,named ,restnames ... . ,restvar) ,ebody ,erest ...)
-       `(lambda (,named ,@restnames . ,restvar) ,(layout-bodies (cons ebody erest)))]
-      [`(lambda ,restvar ,ebody ,erest ...) `(lambda ,restvar ,@(map T (cons ebody erest)))]
-      [`(dynamic-wind ,epre-thunk ,evalue-thunk ,epost-thunk)
-       `(dynamic-wind ,(T epre-thunk) ,(T evalue-thunk) ,(T epost-thunk))]
-      [`(guard (,x ,cond-clauses ...) ,ebody ,erest ...)
-       `(guard (,x ,@(layout-cond cond-clauses)) ,(layout-bodies (cons ebody erest)))]
-      [`(raise ,eraiseval) `(raise ,(T eraiseval))]
-      [`(delay ,edelayval) `(delay ,(T edelayval))]
-      [`(force ,eforceval) `(force ,(T eforceval))]
-      [`(and ,andvals ...) `(and ,@(map T andvals))]
-      [`(or ,orvals ...) `(or ,@(map T orvals))]
-      [`(match ,matchexp ,matchclauses ...) (layout-match matchexp matchclauses)]
-      [`(cond ,condclauses ...) `(cond ,@(layout-cond condclauses))]
-      [`(case ,exp ,caseclauses ...) (layout-case exp caseclauses)]
-      [`(if ,econd ,et ,ef) `(if ,(T econd) ,(T et) ,(T ef))]
-      [`(when ,econd ,whenexp ,restexps ...) `(when ,(T econd) ,(layout-bodies (cons whenexp restexps)))]
-      [`(unless ,econd ,unlessexp ,restexps ...) `(unless ,(T econd) ,(layout-bodies (cons unlessexp restexps)))]
-      [`(set! ,varname ,exp) `(set! ,varname ,(T exp))]
-      [`(define ,args ,ebody ,erest ...)
-       (displayln (format "WTF GOT TO A DEFINE:: ~s" args))
-       'BADBADBAD]
-      [`(begin ,ebody ,erest ...)
-       (layout-bodies (cons ebody erest))]
-      [`(call/cc ,exp)
-       `(call/cc ,(T exp))]
-      [`(apply ,efun ,eargs)
-       `(apply ,(T efun) ,(T eargs))] ;; HELP how to top-level a list? will that be in the quote match?
-      [`',dat
-       ; (displayln (format "got dat: ~s" dat))
-       e]
-      [`(quasiquote ,qdat) (layout-qq qdat 1)]
-
-      ; primitives
-      [`(hash . ,vals)
-       `(apply hash ,(make-cons vals))]
-      [`(hash-ref ,hash ,key)
-       (define hname (gensym 'hashname))
-       (define hkeyname (gensym 'hashkeyname))
-       `(let ([,hname ,(T hash)]
-              [,hkeyname ,(T key)])
-          (if ,(T `(hash-has-key? ,hname ,key))
-              (hash-ref ,(T hname) ,hkeyname)
-              (raise '(hash-key-doesnt-exist ,(T key)))))]
-      [`(hash-ref ,hash ,key ,def-val)
-       (define hname (gensym 'hashname))
-       (define hkeyname (gensym 'hashkeyname))
-       `(let ([,hname ,(T hash)]
-              [,hkeyname ,(T key)])
-          (if ,(T `(hash-has-key? ,hname ,key))
-              (hash-ref ,(T hname) ,hkeyname)
-              ,(T def-val)))]
-      
-      [`(vector-set! ,vec ,pos ,newval)
-       (layout-vector-set! vec pos newval)]
-      [`(vector-ref ,vec ,pos)
-       (layout-vector-ref vec pos)]
-      [`(/)
-       (T '(raise '(div-takes-at-least-1-arg)))]
-      [`(/ ,onearg)
-       (T `(/ 1 ,onearg))]
-      [`(/ ,numerator . ,denominators)
-       (if (empty? denominators)
-           `(/ ,numerator)
-           (layout-prim-div numerator denominators))]
-      [(? prim? op) op] ;; HELP does this work? TEST
-
-      
-      [(? symbol? x) x] ;; HELP does this work? TEST
-      [(? natural? nat) `',nat] ;; HELP does this work?
-      [(? string? str) `',str] ;; HELP does this work?
-      [#t ''#t] ;; HELP does this work?
-      [#f ''#f] ;; HELP does this work?
-      #;[(? datum? d)
-       (displayln (format "COULD NOT FIGURE OUT HOW TO QUOTE DATUM ~s" d))
-       `',d] ; HELP: why doesnt this work for all datums?
-      [`(,ef ,eargs ...) `(,(T ef) ,@(map T eargs))]))
+      [`(begin ,es ...)
+       (match-define (cons defs e+) (extract-defs e))
+       `(letrec* ,defs ,e+)]
+      [`(let ,loop ([,xs ,rhss] ...) ,es ...)
+       `(let ,loop ,(map list xs (map T rhss)) ,(T `(begin . ,es)))]
+      [`(cond [,guards ,ess ...] ...)
+       `(cond ,@(map (lambda (guard es) (if (null? es) `(,(T guard)) `[,(T guard) ,(T `(begin . ,es))])) guards ess))]
+      [`(case ,key [,guards ,ess ...] ...)
+       `(case ,(T key) ,@(map (lambda (guard es) `[,guard ,(T `(begin . ,es))]) guards ess))]
+      [`(guard (,x [,guards ,ess ...] ...) ,bodies ...)
+       `(guard (,x ,@(map (lambda (guard es) (if (null? es) `(,(T guard)) `(,(T guard) ,(T `(begin . ,es))))) guards ess))
+               ,(T `(begin . ,bodies)))]
+      [`(lambda ,param ,es ...)
+       (match param
+              [(? symbol? x)
+               `(lambda ,x ,(T `(begin . ,es)))]
+              [`(,(? symbol? xs) ... . ,(? symbol? args))
+               `(lambda (,@xs . ,args) ,(T `(begin . ,es)))]
+              [`(,(? symbol? xs) ... ,(list def-xs def-es) ...)
+               (T-lambda-with-default-params xs def-xs def-es (T `(begin . ,es)))]
+              [else (error "unexpected arg list")])]
+      [`(match ,(? symbol? k))
+       `(raise '"Match failed")]
+      [`(match ,(? symbol? k) [,pat ,es ...] . ,rest)
+       `(if ,(T (T-pattern-guard k pat))
+            ,(T (T-pattern-bindings k pat (lambda () `(begin . ,es))))
+            ,(T `(match ,k . ,rest)))]
+      [`(match ,key . ,rest)
+       (define k (gensym 'match-key))
+       `(let ([,k ,(T key)]) ,(T `(match ,k . ,rest)))]
+                                        ; Handle various forms with implicit begins at once
+      [`(,(and tag (or 'letrec 'letrec* 'let 'let* 'when 'unless)) ,stuff ,es ...)
+       `(,tag ,(T stuff) ,(T `(begin . ,es)))]
+      [``,quasi (T-qq quasi)]
+      [`',d `',d]
+      [(? symbol? x) x]
+      [`(,es ...) (map T es)]
+      [(? datum? d) `',d]))
   (T e))

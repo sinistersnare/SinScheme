@@ -158,6 +158,8 @@
 
 
 (define (alphatize e)
+  (displayln e)
+  (displayln "ENDED")
   (define (rename x)
     (define xs (symbol->string x))
     (define lst (string->list xs))
@@ -199,12 +201,12 @@
            [`(call/cc ,e0)
             `(call/cc ,((alpha-rename env) e0))]
            [`(set! ,x ,e0)
-            `(set! ,(hash-ref env x) ,((alpha-rename env) e0))]
+            `(set! ,(hash-ref env x (lambda () (display `('SET!e ,e env! ,env)) 'BLOOPBAPSDFASDF2)) ,((alpha-rename env) e0))]
            [`(apply ,e0 ,e1)
             `(apply ,((alpha-rename env) e0)
                     ,((alpha-rename env) e1))]
            [(? symbol? x)
-            (hash-ref env x)]
+            (hash-ref env x (lambda () (display `('FUCKFUCK ,e lol)) 'BLOOPBAPSDFASDF2))]
            [`',dat
             `',dat]
            [`(,es ...)

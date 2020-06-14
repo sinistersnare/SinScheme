@@ -169,14 +169,14 @@ SinObj* const_init_int(s64 i) {
 
 SinObj* const_init_void() {
     SinObj* ret = alloc_atomic(1);
-    ret->valueptr = NULL;
+    ret->valueptr = nullptr;
     ret->type = Void;
     return ret;
 }
 
 SinObj* const_init_null() {
     SinObj* ret = alloc_atomic(1);
-    ret->valueptr = NULL;
+    ret->valueptr = nullptr;
     ret->type = Null;
     return ret;
 }
@@ -268,7 +268,7 @@ SinObj* prim_print_aux(SinObj* obj) {
         } else if (bv == 1) {
             printf("#t");
         } else {
-            printf("Unknown Boolean value: %llu", bv);
+            printf("Unknown Boolean value: %lu", bv);
         }
     }
         break;
@@ -281,7 +281,7 @@ SinObj* prim_print_aux(SinObj* obj) {
         printf(")");
         break;
     case Int:
-        printf("%lld", unwrap_int(obj, "prim_print_aux Int case."));
+        printf("%ld", unwrap_int(obj, "prim_print_aux Int case."));
         break;
     case Str:
         printf("%s", unwrap_str(obj, "prim_print_aux Str case."));
@@ -301,7 +301,7 @@ SinObj* prim_print_aux(SinObj* obj) {
         printf("Sets not currently supported!");
         break;
     case Other:
-        printf("(print v); unrecognized value %llu", reinterpret_cast<u64>(obj->valueptr));
+        printf("(print v); unrecognized value %lu", reinterpret_cast<u64>(obj->valueptr));
         break;
     }
     return const_init_void();
@@ -358,14 +358,14 @@ SinObj* print_vector(SinObj* obj) {
 SinObj* print_hash(SinObj* obj) {
     Map* map = unwrap_hash(obj, "print_hash");
 
-    while (map != NULL) {
+    while (map != nullptr) {
         printf("(");
         prim_print_aux(map->key);
         printf(" . ");
         prim_print_aux(map->value);
         printf(")");
 
-        if (map->next != NULL) {
+        if (map->next != nullptr) {
             printf(" ");
         }
         map = map->next;
@@ -407,7 +407,6 @@ const char* get_type_name(SinType type) {
 // Primitives
 
 
-GEN_EXPECT1ARGLIST(applyprim_halt, prim_halt)
 SinObj* prim_halt(SinObj* val) { // halt
     prim_print(val);
     if (val->type != Void) {
@@ -858,7 +857,7 @@ SinObj* prim_hash_45has_45key_63(SinObj* hash, SinObj* key) { // hash-has-key?
 }
 
 SinObj* applyprim_hash(SinObj* cur) { // apply hash
-    Map* map = NULL;
+    Map* map = nullptr;
 
     while (cur->type != Null) {
         SinObj *car = reinterpret_cast<SinObj*>(GC_MALLOC(1)),
@@ -889,7 +888,7 @@ SinObj* prim_hash_45ref(SinObj* hash, SinObj* key) { // hash-ref
     Map* map = unwrap_hash(hash, "hash-ref");
 
     SinObj* val = map_get(map, key);
-    if (val == NULL) {
+    if (val == nullptr) {
         fatal_err("Map did not have requested key");
     }
     return val;

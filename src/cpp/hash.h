@@ -29,11 +29,11 @@ u64 map_count(Map* m);
 // hash hash-keys hash-ref hash-set
 
 Map* insert_update(Map* m, SinObj* k, SinObj* v) {
-    if (m == NULL) {
+    if (m == nullptr) {
         // made it all the way through the map and didnt find the val
         // So just add the entry to update at the end of the map.
         Map* final_val = reinterpret_cast<Map*>(GC_MALLOC(sizeof(Map)));
-        final_val->next = NULL;
+        final_val->next = nullptr;
         final_val->key = k;
         final_val->value = v;
         return final_val;
@@ -55,8 +55,8 @@ Map* insert_update(Map* m, SinObj* k, SinObj* v) {
 
 // Shallowly copies each element into a new Map*.
 Map* insert_copy(Map* m) {
-    if (m == NULL) {
-        return NULL;
+    if (m == nullptr) {
+        return nullptr;
     }
     Map* new_map = reinterpret_cast<Map*>(GC_MALLOC(sizeof(Map)));
     new_map->key = m->key;
@@ -74,7 +74,7 @@ Map* map_insert(Map* m, SinObj* k, SinObj* v) {
 /// Returns a Vector SinObj
 /// Where the 0th spot is the size, and the others are the keys.
 SinObj* map_keys(Map* m) {
-    if (m == NULL) {
+    if (m == nullptr) {
         return const_init_null();
     }
 
@@ -85,20 +85,20 @@ SinObj* map_keys(Map* m) {
 }
 
 /// Returns a SinObj that is the value of the map.
-/// If the key is not found, NULL is returned.
+/// If the key is not found, nullptr is returned.
 SinObj* map_get(Map* m, SinObj* key) {
-    while (m != NULL) {
+    while (m != nullptr) {
         if (eq_helper(key, m->key) == 1) {
             return m->value;
         }
         m = m->next;
     }
-    return NULL;
+    return nullptr;
 }
 
 
 bool map_has_key(Map* m, SinObj* key) {
-    while (m != NULL) {
+    while (m != nullptr) {
         if (eq_helper(m->key, key) == 1) {
             return true;
         }
@@ -111,7 +111,7 @@ bool map_has_key(Map* m, SinObj* key) {
 u64 map_count(Map* m) {
     u64 count = 0;
 
-    while (m != NULL) {
+    while (m != nullptr) {
         count++;
         m = m->next;
     }
