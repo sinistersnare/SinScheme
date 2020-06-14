@@ -11,11 +11,14 @@
  scm->llvmir
  gen-header-name)
 
-(require "src/racket/top-level.rkt")       ; top-level
-(require "src/racket/desugar.rkt")         ; desugar
-(require "src/racket/cps.rkt")             ; assignment-convert, alphatize, anf-convert, cps-convert
-(require "src/racket/closure-convert.rkt") ; closure-convert, proc->llvm
-(require "src/racket/utils.rkt")           ; read-begin, simplify-ir
+(require "src/racket/top-level.rkt")          ; top-level
+(require "src/racket/desugar.rkt")            ; desugar
+(require "src/racket/cps.rkt")                ; cps-convert
+(require "src/racket/anf.rkt")                ; anf-convert
+(require "src/racket/assignment-convert.rkt") ; assignment-convert
+(require "src/racket/alphatize.rkt")          ; alphatize
+(require "src/racket/closure-convert.rkt")    ; closure-convert, proc->llvm
+(require "src/racket/utils.rkt")              ; read-begin, simplify-ir
 
 (require threading)
 
@@ -56,8 +59,12 @@
 ; compile-code SinScheme -> String
 ; Takes a valid SinScheme program (a symbol, or an S-Expression) and compiles it to LLVM IR code.
 (define (compile-code scm)
-  (~> scm top-level desugar simplify-ir assignment-convert
-      alphatize anf-convert cps-convert closure-convert proc->llvm))
+  #; (~> scm top-level desugar simplify-ir assignment-convert
+         alphatize anf-convert cps-convert closure-convert proc->llvm)
+  (proc->llvm (closure-convert
+               (cps-convert (anf-convert (alphatize (assignment-convert
+                                                     (simplify-ir (desugar (top-level scm))))))))))
+
 
 ;; End actual LLVM emitter code.
 
@@ -75,6 +82,7 @@
                  "-Wall"
                  "-Weverything"
                  "-Wno-c++98-compat" ; so i can use nullptr unmolested.
+                 "-Wno-extra-semi-stmt"
                  ; "-g"
                  ; "-DGC_DEBUG"
                  )))

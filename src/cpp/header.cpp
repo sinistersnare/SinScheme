@@ -407,6 +407,8 @@ const char* get_type_name(SinType type) {
 // Primitives
 
 
+
+GEN_EXPECT1ARGLIST(applyprim_halt, prim_halt)
 SinObj* prim_halt(SinObj* val) { // halt
     prim_print(val);
     if (val->type != Void) {

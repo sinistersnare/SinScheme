@@ -1,5 +1,7 @@
 ##### Project Related#####
 
+*.x 
+*.sinscm~ 
 build/
 
 ##### Racket Related #####
