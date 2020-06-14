@@ -182,6 +182,7 @@ SinObj* applyprim_eq_63(SinObj*);
 SinObj* prim_void();
 SinObj* applyprim_void();
 SinObj* prim_halt(SinObj*);
+SinObj* applyprim_halt(SinObj*);
 SinObj* prim_vector_45length(SinObj*);
 SinObj* applyprim_vector_45length(SinObj*);
 SinObj* prim_vector_45set_33(SinObj*, SinObj*, SinObj*);

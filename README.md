@@ -10,9 +10,19 @@ becuase that sounds like a fun post idea!
 
 ## Installing Dependencies ##
 
+### MacOS ###
 Boehm-GC is a required dependency. I am pretty sure it can be downloaded on homebrew:
 
 `$ brew install libgc`
+
+### Linux ###
+
+I installed BoehmGC on linux from [their page](https://www.hboehm.info/gc/simple_example.html),
+but my configure command was:
+
+```bash
+$ ./configure --prefix=/usr/local/ --disable-threads --enable-cplusplus --enable-static
+```
 
 ***Note***: you may need to edit `compiler.rkt` to have the correct libgc path.
 You will see the comment.
@@ -23,6 +33,7 @@ If you have easy instructions on how to do it for your platform, please send a P
 * Support variable shadowing in desugar.
 * Support t0 => e0 cond-clause syntax in desugar.
 * Actually desugar dynamic-wind and dont add it to the wrapped runtime funcs.
+* Do user-defined functions ensure arg count is good? If not, when we do closure-conversion, and turn all lambdas into vararg, we should add some 'if numargs expected is not given, fail' code...? May be some nontrivial stuff cause of how barren the grammar is, but can be a function that wraps...? Maybe!
 
 ## Running The Compiler ##
 

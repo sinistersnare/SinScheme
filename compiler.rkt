@@ -17,40 +17,36 @@
 (require "src/racket/closure-convert.rkt") ; closure-convert, proc->llvm
 (require "src/racket/utils.rkt")           ; read-begin, simplify-ir
 
+(require threading)
 
 ; this file provides the common API for tests.rkt and sinscm.rkt
 ; It should not be used directly unless you are writing another front-end for sinscm.
-; I tried putting this in src/racket (and changing the requires and provides in tests.rkt sinscm.rkt and this file)
-;   but when I try to run those programs, they hang for some reason.
+; I tried putting this in src/racket
+; (and changing the requires and provides in tests.rkt sinscm.rkt and this file)
+; but when I try to run those programs, they hang for some reason.
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; HERE ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
 ;; SET THESE TO YOUR LIBGC LOCATIONS PLZ
-
-
-; Default fallback locations from utils.rkt
-; (this is what you want to change probably)
-(define project-path (current-directory))
-(define libgc-path
-  (path->string
-   (build-path project-path "lib" "local" "lib" "libgc.a")))
-(define gc-include-path
-  (path->string
-   (build-path project-path "lib" "local" "include")))
-
-; locations where brew installs libgc (brew install libgc)
-(define brew-include-dir "/usr/local/Cellar/bdw-gc/7.6.0/include/")
-(define brew-libgc-path "/usr/local/Cellar/bdw-gc/7.6.0/lib/libgc.a")
+; windows not supported! It can be, I just dont know where the paths would be.
 
 (define libgc-include-dir
-  (if (directory-exists? brew-include-dir)
-      brew-include-dir
-      gc-include-path))
-(define libgc-obj-path
-  (if (file-exists? brew-libgc-path)
-      brew-libgc-path
-      libgc-path))
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; END HERE ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+  (match (system-type 'os)
+    ['macosx (path->string (build-path "/" "usr" "local" "Cellar" "bdw-gc" "7.6.0" "include"))]
+    ['unix (path->string (build-path "/" "usr" "local" "include"))]
+    ['windows (raise 'windows-not-supported)]
+    [else (raise 'unknown-os-type)]))
 
+(define libgc-obj-path
+  (match (system-type 'os)
+    ['macosx (path->string (build-path "/" "usr" "local" "Cellar" "bdw-gc" "7.6.0" "lib" "libgc.a"))]
+    ['unix (path->string (build-path "/" "usr" "local" "lib" "libgc.a"))]
+    ['windows (raise 'windows-not-supported)]
+    [else (raise `('unsupported-os-type ,else))]))
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; END HERE ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(unless (directory-exists? libgc-include-dir) (raise `('cant-find-include ,libgc-include-dir)))
+(unless (file-exists? libgc-obj-path) (raise `('cant-find-libgc-obj ,libgc-obj-path)))
 
 ;; Actual LLVM Emitter code
 (define (compile-program inport [outport (current-output-port)])
@@ -60,23 +56,12 @@
 ; compile-code SinScheme -> String
 ; Takes a valid SinScheme program (a symbol, or an S-Expression) and compiles it to LLVM IR code.
 (define (compile-code scm)
-  ; awh no threading macro in Racket stdlib :(
-  #; (~> code top-level desugar simplify-ir assignment-convert alphatize anf-convert cps-convert closure-convert proc->llvm)
-  (define ccd (closure-convert
-               (cps-convert (anf-convert (alphatize (assignment-convert
-                                                                     (simplify-ir (desugar (top-level scm)))))))))
-  ; (displayln ccd)
-  (proc->llvm ccd))
+  (~> scm top-level desugar simplify-ir assignment-convert
+      alphatize anf-convert cps-convert closure-convert proc->llvm))
 
 ;; End actual LLVM emitter code.
 
-
-(define clang++-path
-  (let ([clang++-path-submit-server "/opt/llvm-3.9.0/bin/clang++"])
-    (if (file-exists? clang++-path-submit-server)
-        clang++-path-submit-server
-        "clang++")))
-
+(define clang++-path "clang++")
 
 (define (gen-header-name)
   (when (not (directory-exists? "build")) (make-directory "build"))
@@ -100,40 +85,35 @@
                      libgc-include-dir-path compiled-prelude-name)
   ; Compile the header file into llvm-ir
   (system (format "~a ~a ~a -I~s -S -emit-llvm -o ~a"
-                  clang-path all-compiler-flags header-location libgc-include-dir-path compiled-prelude-name))
+                  clang-path all-compiler-flags header-location
+                  libgc-include-dir-path compiled-prelude-name))
   ; Compile Scheme code to llvm-ir
   (define compiled-code
     (let ([compiled-str (open-output-string)])
       (compile-program in-port compiled-str)
       (get-output-string compiled-str)))
   ; create a complete llvm program with prelude.
-  (define complete-program (string-append (file->string compiled-prelude-name) "\n\n;;;;;;;End Prelude;;;;;;;\n\n" compiled-code))
+  (define complete-program (string-append (file->string compiled-prelude-name)
+                                          "\n\n;;;;;;;End Prelude;;;;;;;\n\n" compiled-code))
   (display complete-program out-port))
 
 (define (llvmir->exe combined-ir-filepath clang-path all-compiler-flags libgc-lib-path outfilename)
-  (system (format "~a ~a ~a ~a -o ~a" clang-path all-compiler-flags libgc-lib-path combined-ir-filepath outfilename)))
+  (system (format "~a ~a ~a ~a -o ~a" clang-path all-compiler-flags
+                  libgc-lib-path combined-ir-filepath outfilename)))
 
 (define (scm->exe inputport outfilename clang-path all-compiler-flags
                   libgc-object-file-path libgc-include-dir-path header-llvm-built-name)
-  (define combined-file-location (string-append "build/" (symbol->string (gensym 'generated_combined)) ".ll"))
+  (define combined-file-location (string-append "build/"
+                                                (symbol->string (gensym 'generated_combined)) ".ll"))
   (define combined-output-file (open-output-file combined-file-location #:exists 'replace))
-  (scm->llvmir inputport combined-output-file clang-path all-compiler-flags libgc-include-dir-path header-llvm-built-name)
+  (scm->llvmir inputport combined-output-file clang-path all-compiler-flags
+               libgc-include-dir-path header-llvm-built-name)
 
   (close-output-port combined-output-file) ; dont use combined-output-file anymore!
-  (llvmir->exe combined-file-location clang-path all-compiler-flags libgc-object-file-path outfilename)
-  ; remove this void for a status check to be printed out
-  ; (it seems if system is the last call in a block it will print whether it worked or not?)
+  (llvmir->exe combined-file-location clang-path
+               all-compiler-flags libgc-object-file-path outfilename)
   (void))
-
-
-
 
 ; if all params are null then we are in library mode,
 ; and we provide scm->llvm scm->exe and llvm->exe in library mode.
-
-
-
-
-
-
 
