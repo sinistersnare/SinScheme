@@ -8,9 +8,6 @@
 (provide closure-convert
          proc->llvm)
 
-(define (disp s v)
-  (display s) (displayln v))
-
 ; Pass that removes lambdas and datums as atomic and forces them to be let-bound
 ;   ...also performs a few small optimizations
 (define (simplify-ae e)
@@ -109,6 +106,8 @@
 
 ; (f a b c) -> (clo-app f a b c) -> (C-style-app f[0] f a b c)
 ; call simplify-ae on input to closure convert, then remove vararg callsites/lambdas
+; simplify-ae also forced args to `apply` and `apply-prim` be let-bound symbols.
+; which makes processing easier here.
 (define (closure-convert cps)
   (define scps (simplify-ae cps))
   (define no-varargs-cps (remove-varargs scps))
@@ -116,18 +115,17 @@
   (define (bottom-up e procs)
     (match e
       [`(let ([,x ',dat]) ,e0)
-       (match-define `(,e0+ ,free+ ,procs+)
-         (bottom-up e0 procs))
+       (match-define `(,e0+ ,free+ ,procs+) (bottom-up e0 procs))
        `((let ([,x ',dat]) ,e0+)
          ,(set-remove free+ x)
          ,procs+)]
-      [`(let ([,x (prim ,op ,xs ...)]) ,e0)
+      [`(let ([,x (prim ,op ,(? symbol? xs) ...)]) ,e0)
        (match-define `(,e0+ ,free+ ,procs+)
          (bottom-up e0 procs))
        `((let ([,x (prim ,op ,@xs)]) ,e0+)
          ,(set-remove (set-union free+ (list->set xs)) x)
          ,procs+)]
-      [`(let ([,x (apply-prim ,op ,args)]) ,e0)
+      [`(let ([,x (apply-prim ,op ,(? symbol? args))]) ,e0)
        (match-define `(,e0+ ,free+ ,procs+) (bottom-up e0 procs))
        `((let ([,x (apply-prim ,op ,args)]) ,e0+)
          ,(set-remove (set-add free+ args) x) ; HELP: IS THIS RIGHT????
@@ -315,7 +313,9 @@
                    (format "~astore %struct.SinObj* %~s, %struct.SinObj** %~s, align 8"
                            (ind indent-level) x stackptr)
                    (to-llvm e globals indent-level))
-           ((disp "DONT KNOW HOW TO LLVM-ENCODE:: " dat) "BAD-LLVM-IR-SORRY"))]
+           (begin
+             (displayln `("DONT KNOW HOW TO LLVM-ENCODE:: " ,dat))
+            "BAD-LLVM-IR-SORRY"))]
       [`(let ([,x ',(? string? dat)]) ,e)
        (define encoded (c-encode dat))
        (define val (hash-ref globals encoded))
@@ -334,7 +334,9 @@
                    (format "~astore %struct.SinObj* %~s, %struct.SinObj** %~s, align 8"
                            (ind indent-level) x stackptr)
                    (to-llvm e globals indent-level))
-           ((disp "DONT KNOW HOW TO LLVM-ENCODE:: " dat) "BAD-LLVM-IR-SORRY"))]
+           (begin
+             (displayln `("DONT KNOW HOW TO LLVM-ENCODE:: " dat))
+             "BAD-LLVM-IR-SORRY"))]
       ;; TESTME
       [`(let ([,x (env-ref ,env ,nat)]) ,e)
        (define stackptr (gensym 'env_ref_stackptr))

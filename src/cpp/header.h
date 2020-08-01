@@ -144,11 +144,14 @@ const char* get_type_name(SinType);
 void _get_both(SinObj*, SinObj*, SinObj*);
 u64 is_truthy_value(SinObj*);
 SinObj* prim_print_aux(SinObj*);
+
 // primitives in no particular order...
 
 SinObj* print_hash(SinObj*);
 SinObj* print_cons(SinObj*);
 SinObj* print_vector(SinObj*);
+SinObj* prim_display(SinObj*);
+SinObj* applyprim_display(SinObj*);
 SinObj* prim_print(SinObj*);
 SinObj* applyprim_print(SinObj*);
 SinObj* prim_println(SinObj*);
@@ -202,14 +205,16 @@ SinObj* prim_make_45vector(SinObj*, SinObj*);
 SinObj* applyprim_make_45vector(SinObj*);
 
 
-SinObj* applyprim__43(SinObj* cur);
-SinObj* prim__45(SinObj* a, SinObj* b);
-SinObj* applyprim__45(SinObj* list);
-SinObj* applyprim__42(SinObj* list);
-SinObj* prim__47(SinObj* a, SinObj* b);
-SinObj* prim__61(SinObj* a, SinObj* b);
-SinObj* prim__60(SinObj* a , SinObj* b);
-SinObj* prim__60_61(SinObj* a, SinObj* b);
+SinObj* applyprim__43(SinObj*);
+SinObj* prim__45(SinObj*, SinObj*);
+SinObj* applyprim__45(SinObj*);
+SinObj* applyprim__42(SinObj*);
+SinObj* prim__47(SinObj*, SinObj*);
+SinObj* applyprim__61(SinObj*);
+SinObj* prim__61(SinObj*, SinObj*);
+SinObj* prim__60(SinObj* , SinObj*);
+SinObj* applyprim__60_61(SinObj*);
+SinObj* prim__60_61(SinObj*, SinObj*);
 SinObj* prim_not(SinObj*);
 SinObj* applyprim_not(SinObj*);
 

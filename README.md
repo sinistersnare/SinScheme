@@ -30,8 +30,10 @@ You will see the comment.
 If you have easy instructions on how to do it for your platform, please send a PR!!!
 
 ## TODO: ##
-* Support variable shadowing in desugar.
-* Support t0 => e0 cond-clause syntax in desugar.
+* Document how the fuck -e works (for directly compiling code)
+* Add println and displayln primitives
+* Support variable shadowing in desugar. Test by replacing `displayln` with `println` in hello.sinscm
+* Support t0 => e0 cond-clause syntax in desugar (or top-level?).
 * Actually desugar dynamic-wind and dont add it to the wrapped runtime funcs.
 * Do user-defined functions ensure arg count is good? If not, when we do closure-conversion, and turn all lambdas into vararg, we should add some 'if numargs expected is not given, fail' code...? May be some nontrivial stuff cause of how barren the grammar is, but can be a function that wraps...? Maybe!
 

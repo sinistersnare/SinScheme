@@ -654,15 +654,25 @@ Returns a value of type Void.
 
 prints a given value to standard out.
 
-Returns a Void typed, value.
+Returns void.
 
 ```scheme
 (print 'hi) ; ==> #<void>
 'hi<no-newline>
 ```
 
+### println ###
+
+Same semantics as print, but adds a newline at the end of its output.
+
+```scheme
+(println 'hi) ; ==> #<void>
+'hi
+```
+
 ### display ###
 
+Current implemented as an alias for `print`.
 unimplmemented, just here becuase i want to implement it.
 
 ### write ###

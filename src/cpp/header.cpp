@@ -1,22 +1,15 @@
 #define GC_DEBUG 1
 
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wreserved-id-macro"
-// gc.h has a macro __GC that is 'reserved', but i cant do anything about it.
-#include "gc.h"
-#pragma clang diagnostic pop
-
+#include "header.h"
 #include "hash.h"
+
+#include "gc.h"
 
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
 
-#include "header.h"
-
-
 extern "C" {
-
 
 // header.h doesnt include hash.h so i have prototypes here.
 SinObj* map_to_sin(Map* m);
@@ -211,7 +204,15 @@ SinObj* const_init_symbol(char* s) {
 
 ////// Printing
 
-GEN_EXPECT1ARGLIST(applyprim_print,prim_print)
+GEN_EXPECT1ARGLIST(applyprim_display, prim_display)
+SinObj* prim_display(SinObj* obj) {
+    // forward to `print`
+    // theres probably different semantics between
+    // print and display... but.... nahhh
+    return prim_print(obj);
+}
+
+GEN_EXPECT1ARGLIST(applyprim_print, prim_print)
 SinObj* prim_print(SinObj* obj) {
     SinType typ = obj->type;
 
@@ -423,12 +424,14 @@ u64 _get_vector_length(SinObj* obj) {
     return reinterpret_cast<u64>(vec_obj[0].valueptr);
 }
 
-// TODO: use this more
+/**
+  * Gets the car and cdr of the given lst (the first argument)
+  * And puts them into the 2nd and 3rd arguments.
+  */
 void _get_both(SinObj* lst, SinObj* car, SinObj* cdr) {
     SinObj* cons_obj = unwrap_cons(lst, "_get_both");
     // this is safe because the lifetimes are the same
-    // the lifetime of lst is >= than the lifetimes
-    // of car and cdr.
+    // the lifetime of lst >= the lifetimes of car and cdr.
     *car = cons_obj[0];
     *cdr = cons_obj[1];
 }
@@ -822,6 +825,7 @@ SinObj* prim__47(SinObj* a, SinObj* b) { // /
 
 /// Takes 2 SinObj's of type Int
 /// Returns a SinObj of type Bool
+GEN_EXPECT2ARGLIST(applyprim__61, prim__61)
 SinObj* prim__61(SinObj* a, SinObj* b) { // =
     if (unwrap_int(a, "= a") == unwrap_int(b, "= b")) {
         return const_init_true();
@@ -838,6 +842,7 @@ SinObj* prim__60(SinObj* a , SinObj* b) { // <
 
 /// Takes 2 SinObj's of type Int
 /// Returns a SinObj of type Bool
+GEN_EXPECT2ARGLIST(applyprim__60_61, prim__60_61)
 SinObj* prim__60_61(SinObj* a, SinObj* b) { // <=
     return make_predicate(unwrap_int(a, "<= a") <= unwrap_int(b, "<= b"));
 }
@@ -871,10 +876,8 @@ SinObj* applyprim_hash(SinObj* cur) { // apply hash
     Map* map = nullptr;
 
     while (cur->type != Null) {
-        SinObj *car = reinterpret_cast<SinObj*>(GC_MALLOC(1)),
-               *cdr = reinterpret_cast<SinObj*>(GC_MALLOC(1)),
-               *cadr = reinterpret_cast<SinObj*>(GC_MALLOC(1)),
-               *cddr = reinterpret_cast<SinObj*>(GC_MALLOC(1));
+        SinObj *car = alloc(1), *cdr = alloc(1),
+                *cadr = alloc(1), *cddr = alloc(1);
         _get_both(cur, car, cdr);
 
         if (cdr->type != Cons) {

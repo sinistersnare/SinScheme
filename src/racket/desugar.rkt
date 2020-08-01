@@ -1,156 +1,11 @@
 #lang racket
 
-(provide desugar)
+(provide desugar desugar-aux)
 (require "utils.rkt")
-(require racket/match)
 
 ; WRITTEN BY DAVIS!
 
-(define (desugar-and expressions)
-  (match expressions
-    [`() ''#t]
-    [`(,oneval) (desugar-aux oneval)]
-    [`(,first ,rest ...) `(if ,(desugar-aux first) ,(desugar-and rest) '#f)]))
-
-(define (desugar-or expressions)
-  (match expressions
-    [`() ''#f]
-    [`(,oneval) (desugar-aux oneval)]
-    ; hmmm theres probably a better way, but 4am brain...
-    [`(,first ,rest ...) (let ([orval (gensym 'orval)])
-                           `(let ([,orval ,(desugar-aux first)])
-                              (if ,orval ,orval ,(desugar-or rest))))]))
-
-(define (desugar-lambda-list varnamed varlist body)
-  (define (desugar-let-bindings varnamed varlist curcar)
-    (if (empty? varnamed)
-        (desugar-aux `((,varlist ,curcar)))
-        (desugar-aux `((,(car varnamed) (car ,curcar))
-                       ,@(desugar-let-bindings (cdr varnamed)
-                                               varlist
-                                               `(cdr ,curcar))))))
-  (let ([argvar (gensym 'argvar)])
-    `(lambda ,argvar (let ,(desugar-let-bindings varnamed varlist argvar) ,(desugar-aux body)))))
-
-(define (desugar-begin expressions)
-  (match expressions
-    [`() (desugar-aux '(void))]
-    [`(,oneval) (desugar-aux oneval)]
-    [`(,oneval ,rest ...) (let ([varname (gensym 'unused-begin)])
-                            `(let ([,varname ,(desugar-aux oneval)])
-                               ,(desugar-begin rest)))]))
-
-(define (desugar-letrec bindings body)
-  (define (desugar-letrec-body bindings body)
-    (if (empty? bindings) (desugar-aux body)
-        (let ([binding-name (gensym 'letrec-binding)])
-          (desugar-aux
-           `(let ([,binding-name ,(cadar bindings)])
-              (begin (set! ,(caar bindings) ,binding-name)
-                     ,(desugar-letrec-body (cdr bindings) body)))))))
-  `(let ,(map (lambda binding `[,(caar binding) ',(gensym 'unset)]) bindings)
-     ,(desugar-letrec-body bindings body)))
-
-(define (desugar-letrec* bindings body)
-  `(let ,(map (lambda binding `(,(caar binding) 'undefined)) bindings)
-     ,(desugar-aux `(begin
-                      ,@(map (lambda binding (cons 'set! (cons (caar binding) (cdar binding))))
-                             bindings)
-                      ,body))))
-
-(define (desugar-let* bindings body)
-  (if (empty? bindings) (desugar-aux body)
-      `(let ([,(caar bindings) ,(desugar-aux (cadar bindings))])
-         ,(desugar-let* (cdr bindings) body))))
-
-(define (desugar-let bindings body)
-  (define (desugar-bindings bindings)
-    (match bindings
-      ['() '()]
-      [`((,name ,val) ,rest ...) (cons `[,name ,(desugar-aux val)] (desugar-bindings rest))]
-      [else 'BAD-SYNTAX!]))
-  (if (empty? bindings)
-      (desugar-aux body) ; small optimization
-      `(let ,(desugar-bindings bindings) ,(desugar-aux body))))
-
-;TODO:  for some reason, changing the `(,loop ,@(...)) to `(apply ,loop ',(...)) doesnt work... WHY??
-(define (desugar-let-loop loop bindings body)
-  (desugar-aux `(letrec ([,loop (lambda ,(map car bindings) ,body)])
-                  (,loop ,@(map cadr bindings)))))
-
-(define (desugar-cond expressions)
-  (if (empty? expressions) (desugar-aux '(void))
-      (match (car expressions)
-        [`(else ,expr) (desugar-aux expr)]
-        [`(,test) (let ([condvalname (gensym 'condval)])
-                    `(let ([,condvalname ,(desugar-aux test)])
-                       (if ,condvalname ,condvalname ,(desugar-cond (cdr expressions)))))]
-        [`(,test ,expr) `(if ,(desugar-aux test)
-                             ,(desugar-aux expr)
-                             ,(desugar-cond (cdr expressions)))]
-        [else (write expressions) 'BADSYNTAXGETREKT])))
-
-(define (desugar-case key clauses)
-  (define (desugar-case-inner keyvar clauses)
-    (if (empty? clauses) (desugar-aux '(void))
-        (match (car clauses)
-          [`((,dats ...) ,expr) (desugar-aux `(if (memv ,keyvar ',dats)
-                                                  ,(desugar-aux expr)
-                                                  ,(desugar-case-inner keyvar (cdr clauses))))]
-          [`(else ,expr) (desugar-aux expr)]
-          [else (write (car clauses)) 'BADSYNTAX])))
-  (let ([keyvar (gensym 'keyvar)])
-    `(let ([,keyvar ,(desugar-aux key)])
-       ,(desugar-case-inner keyvar clauses))))
-
-(define (desugar-delay expression)
-  (desugar-aux `(vector '%%promise '#f (lambda () ,expression))))
-
-(define (desugar-force expression)
-  (let ([promname (gensym 'promname)])
-    (desugar-aux `(let ([,promname ,expression])
-                    (if (promise? ,promname)
-                        (if (vector-ref ,promname '1)
-                            (vector-ref ,promname '2)
-                            (begin (vector-set! ,promname '1 '#t)
-                                   (vector-set! ,promname '2 ((vector-ref ,promname '2)))
-                                   (vector-ref ,promname '2)))
-                        (raise '"value given is not a promis."))))))
-
-(define (desugar-call/cc e)
-  (let ([kvar (gensym 'k)] [oldstack (gensym 'oldstack)] [xvar (gensym 'x)])
-    `(call/cc
-      ,(desugar-aux
-        `(lambda (,kvar)
-           (,e (let ([,oldstack %wind-stack])
-                 (lambda (,xvar)
-                   (begin
-                     (unless (eq? ,oldstack %wind-stack)
-                       (%do-wind ,oldstack))
-                     (,kvar ,xvar))))))))))
-
-(define (desugar-guard var clauses body)
-  (match clauses
-    ['() (desugar-aux body)]
-    [`(,clauses ... [else ,onelse])
-     (let ([cc (gensym 'cc)])
-       (desugar-aux
-        `(let ([%old-handler %raise-handler] [,cc (call/cc (lambda (k) k))])
-           (if (cons? ,cc)
-               ; an exception has been raised if it's a cons.
-               (let ([,var (car ,cc)]) ,(desugar-cond `(,@clauses [else ,onelse])))
-               (dynamic-wind
-                (lambda () (set! %raise-handler (lambda (ex) (,cc (cons ex '()))))) ; set up handler
-                (lambda () ,body)
-                (lambda () (set! %raise-handler %old-handler)))
-               ))))]
-    ; give an explicit else if not provided.
-    [`(,clauses ...) (desugar-guard var `(,@clauses [else (raise ,var)]) body)]))
-
-(define (desugar-raise e) (desugar-aux `(%raise-handler ,e)))
-
-(define (desugar-prim op)
-  (let ([vararg (gensym 'aprim)]) (desugar-aux `(lambda ,vararg (apply-prim ,op ,vararg)))))
+(define (desugar e) (desugar-aux (wrap e)))
 
 (define (desugar-aux e)
   (match e
@@ -171,8 +26,6 @@
     [`(lambda (,binding ...) ,body) `(lambda ,binding ,(desugar-aux body))]
     [`(lambda (,b1 ,brest ... . ,blist) ,body) (desugar-lambda-list (cons b1 brest) blist body)]
     [`(lambda ,binding ,body) `(lambda ,binding ,(desugar-aux body))]
-    ; this is provided by a runtime function.
-    ;[`(dynamic-wind ,pre ,body ,post) (desugar-dynamic-wind pre body post)]
     [`(guard (,var ,clauses ...) ,body) (desugar-guard var clauses body)]
     [`(raise ,expression) (desugar-raise expression)]
     [`(delay ,expression) (desugar-delay expression)]
@@ -191,8 +44,148 @@
     [`(apply ,func ,args) `(apply ,(desugar-aux func) ,(desugar-aux args))]
     [`(,func ,args ...) (map desugar-aux (cons func args))]
     [`#(,vecitems ...) (desugar-aux `(vector ,@(map (lambda (x) `',x) vecitems)))]
-    [else 'BADSYNTAX-FAIL]))
+    [else (raise `('bad-syntax ,e))]))
 
+(define (desugar-prim op)
+  (let ([vararg (gensym 'aprim)]) (desugar-aux `(lambda ,vararg (apply-prim ,op ,vararg)))))
+
+(define (desugar-letrec* bindings body)
+  `(let ,(map (lambda binding `(,(caar binding) 'undefined)) bindings)
+     ,(desugar-aux `(begin
+                      ; TODO dont use a cons here, just use a quasiquote.
+                      ,@(map (lambda binding (cons 'set! (cons (caar binding) (cdar binding))))
+                             bindings)
+                      ,body))))
+
+(define (desugar-letrec bindings body)
+  (define (desugar-letrec-body bindings body)
+    (if (empty? bindings) (desugar-aux body)
+        (let ([binding-name (gensym 'letrec-binding)])
+          (desugar-aux
+           `(let ([,binding-name ,(cadar bindings)])
+              (begin (set! ,(caar bindings) ,binding-name)
+                     ,(desugar-letrec-body (cdr bindings) body)))))))
+  `(let ,(map (lambda binding `[,(caar binding) ',(gensym 'unset)]) bindings)
+     ,(desugar-letrec-body bindings body)))
+
+(define (desugar-let* bindings body)
+  (if (empty? bindings) (desugar-aux body)
+      `(let ([,(caar bindings) ,(desugar-aux (cadar bindings))])
+         ,(desugar-let* (cdr bindings) body))))
+
+(define (desugar-let bindings body)
+  (define (desugar-bindings bindings)
+    (match bindings
+      ['() '()]
+      [`((,name ,val) ,rest ...) (cons `[,name ,(desugar-aux val)] (desugar-bindings rest))]
+      [else 'BAD-SYNTAX!]))
+  (if (empty? bindings) (desugar-aux body) `(let ,(desugar-bindings bindings) ,(desugar-aux body))))
+
+(define (desugar-let-loop loop bindings body)
+  (desugar-aux `(letrec ([,loop (lambda ,(map car bindings) ,body)]) (,loop ,@(map cadr bindings)))))
+
+(define (desugar-lambda-list varnamed varlist body)
+  (define (desugar-let-bindings varnamed varlist curcar)
+    (if (empty? varnamed)
+        (desugar-aux `((,varlist ,curcar)))
+        (desugar-aux `((,(car varnamed) (car ,curcar))
+                       ,@(desugar-let-bindings (cdr varnamed) varlist `(cdr ,curcar))))))
+  (let ([argvar (gensym 'argvar)])
+    `(lambda ,argvar (let ,(desugar-let-bindings varnamed varlist argvar) ,(desugar-aux body)))))
+
+(define (desugar-guard var clauses body)
+  (match clauses
+    ['() (desugar-aux body)]
+    [`(,clauses ... [else ,onelse])
+     (let ([cc (gensym 'cc)])
+       (desugar-aux
+        `(let ([%old-handler %raise-handler] [,cc (call/cc (lambda (k) k))])
+           (if (cons? ,cc)
+               ; an exception has been raised if it's a cons.
+               (let ([,var (car ,cc)]) ,(desugar-cond `(,@clauses [else ,onelse])))
+               (dynamic-wind
+                (lambda () (set! %raise-handler (lambda (ex) (,cc (cons ex '()))))) ; set up handler
+                (lambda () ,body)
+                (lambda () (set! %raise-handler %old-handler)))))))]
+    ; give an explicit else if not provided.
+    [`(,clauses ...) (desugar-guard var `(,@clauses [else (raise ,var)]) body)]))
+
+(define (desugar-raise e) (desugar-aux `(%raise-handler ,e)))
+
+(define (desugar-delay expression)
+  (desugar-aux `(vector '%%promise '#f (lambda () ,expression))))
+
+(define (desugar-force expression)
+  (let ([promname (gensym 'promname)])
+    (desugar-aux `(let ([,promname ,expression])
+                    (if (promise? ,promname)
+                        (if (vector-ref ,promname '1)
+                            (vector-ref ,promname '2)
+                            (begin (vector-set! ,promname '1 '#t)
+                                   (vector-set! ,promname '2 ((vector-ref ,promname '2)))
+                                   (vector-ref ,promname '2)))
+                        (raise '"value given is not a promise."))))))
+
+(define (desugar-and expressions)
+  (match expressions
+    [`() ''#t]
+    [`(,oneval) (desugar-aux oneval)]
+    [`(,first ,rest ...) `(if ,(desugar-aux first) ,(desugar-and rest) '#f)]))
+
+(define (desugar-or expressions)
+  (match expressions
+    [`() ''#f]
+    [`(,oneval) (desugar-aux oneval)]
+    [`(,first ,rest ...) (let ([orval (gensym 'orval)])
+                           `(let ([,orval ,(desugar-aux first)])
+                              (if ,orval ,orval ,(desugar-or rest))))]))
+
+(define (desugar-cond expressions)
+  (if (empty? expressions) (desugar-aux '(void))
+      (match (car expressions)
+        [`(else ,expr) (desugar-aux expr)]
+        [`(,test) (let ([condvalname (gensym 'condval)])
+                    `(let ([,condvalname ,(desugar-aux test)])
+                       (if ,condvalname ,condvalname ,(desugar-cond (cdr expressions)))))]
+        [`(,test ,expr) `(if ,(desugar-aux test)
+                             ,(desugar-aux expr)
+                             ,(desugar-cond (cdr expressions)))]
+        [else (raise `('bad-syntax ,(car expressions)))])))
+
+(define (desugar-case key clauses)
+  (define (desugar-case-inner keyvar clauses)
+    (if (empty? clauses) (desugar-aux '(void))
+        (match (car clauses)
+          [`((,dats ...) ,expr) (desugar-aux `(if (memv ,keyvar ',dats)
+                                                  ,(desugar-aux expr)
+                                                  ,(desugar-case-inner keyvar (cdr clauses))))]
+          [`(else ,expr) (desugar-aux expr)]
+          [else (raise `('bad-syntax ,(car clauses)))])))
+  (let ([keyvar (gensym 'keyvar)])
+    `(let ([,keyvar ,(desugar-aux key)])
+       ,(desugar-case-inner keyvar clauses))))
+
+(define (desugar-begin expressions)
+  (match expressions
+    [`() (desugar-aux '(void))]
+    [`(,oneval) (desugar-aux oneval)]
+    [`(,oneval ,rest ...) (let ([varname (gensym 'unused-begin)])
+                            `(let ([,varname ,(desugar-aux oneval)])
+                               ,(desugar-begin rest)))]))
+
+(define (desugar-call/cc e)
+  (let ([kvar (gensym 'k)] [oldstack (gensym 'oldstack)] [xvar (gensym 'x)])
+    `(call/cc
+      ,(desugar-aux
+        `(lambda (,kvar)
+           (,e (let ([,oldstack %wind-stack])
+                 (lambda (,xvar)
+                   (begin
+                     (unless (eq? ,oldstack %wind-stack)
+                       (%do-wind ,oldstack))
+                     (,kvar ,xvar))))))))))
+
+; wraps the expression in the runtime functions needed for various capabilities.
 (define (wrap e)
   `(let* ([promise? (lambda (p?) (and (vector? p?)
                                       (eq? (vector-length p?) '3)
@@ -231,12 +224,6 @@
                                      val))))])
      ,e))
 
-(define (desugar e) (desugar-aux (wrap e)))
-
 ; made for ez debugging ;)
 (define d desugar-aux)
 (define (ed e) (eval-ir (desugar e)))
-
-
-
-

@@ -77,7 +77,7 @@
 (define compiler-flags
   (string-join '("-Wno-unused-command-line-argument"
                  "-std=c++11"
-                 "-lpthread"
+                 ; "-lpthread" ; why am i compiling threads?
                  ; "-O2" ;;; TODO figure out why optimization fails
                  "-Wall"
                  "-Weverything"
@@ -108,7 +108,7 @@
 
 (define (llvmir->exe combined-ir-filepath clang-path all-compiler-flags libgc-lib-path outfilename)
   (system (format "~a ~a ~a ~a -o ~a" clang-path all-compiler-flags
-                  libgc-lib-path combined-ir-filepath outfilename)))
+                  combined-ir-filepath libgc-lib-path outfilename)))
 
 (define (scm->exe inputport outfilename clang-path all-compiler-flags
                   libgc-object-file-path libgc-include-dir-path header-llvm-built-name)

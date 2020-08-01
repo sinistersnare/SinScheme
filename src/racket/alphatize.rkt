@@ -7,7 +7,6 @@
 ; alphatize both takes and produces this language as well
 
 (define (alphatize e)
-  ; Defining curried rename function is convenient for mapping over lists of es
   (define (rename env e)
     (match e
       [(? symbol? x) (hash-ref env x)]
