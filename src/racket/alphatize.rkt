@@ -4,7 +4,18 @@
 
 (require (only-in "utils.rkt" prim? datum?))
 
-; alphatize both takes and produces this language as well
+; alpatize does not change the grammar, the input and output are both:
+; e ::= (let ([x e] ...) e)
+;     | (lambda (x ...) e)
+;     | (lambda x e)
+;     | (apply e e)
+;     | (e e ...)
+;     | (prim op e ...)
+;     | (apply-prim op e)
+;     | (if e e e)
+;     | (call/cc e)
+;     | x
+;     | (quote dat)
 
 (define (alphatize e)
   (define (rename env e)
@@ -33,17 +44,3 @@
       [`(,func ,args  ...) (map (lambda (x) (rename env x)) (cons func args))]
       [else (raise `('bad-syntax ,e))]))
   (rename (hash) e))
-
-
-; alpatize does not change the grammar, the input and output are both:
-; e ::= (let ([x e] ...) e)
-;     | (lambda (x ...) e)
-;     | (lambda x e)
-;     | (apply e e)
-;     | (e e ...)
-;     | (prim op e ...)
-;     | (apply-prim op e)
-;     | (if e e e)
-;     | (call/cc e)
-;     | x
-;     | (quote dat)

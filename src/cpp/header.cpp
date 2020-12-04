@@ -685,7 +685,6 @@ SinObj* prim_procedure_63(SinObj* obj) { // procedure?
     return make_predicate(obj->type == Closure);
 }
 
-
 // null? cons? cons car cdr
 
 /// Returns a SinObj of type Bool

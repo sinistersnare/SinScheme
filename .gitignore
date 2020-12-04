@@ -1,7 +1,7 @@
 ##### Project Related#####
 
-*.x 
-*.sinscm~ 
+*.x
+*.sinscm~
 build/
 
 ##### Racket Related #####
@@ -83,3 +83,7 @@ Icon
 Network Trash Folder
 Temporary Items
 .apdisk
+
+# Emacs related apparently
+*~
+\#*\#

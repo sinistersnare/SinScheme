@@ -11,14 +11,14 @@
  scm->llvmir
  gen-header-name)
 
-(require "src/racket/top-level.rkt")          ; top-level
-(require "src/racket/desugar.rkt")            ; desugar
-(require "src/racket/cps.rkt")                ; cps-convert
-(require "src/racket/anf.rkt")                ; anf-convert
-(require "src/racket/assignment-convert.rkt") ; assignment-convert
-(require "src/racket/alphatize.rkt")          ; alphatize
-(require "src/racket/closure-convert.rkt")    ; closure-convert, proc->llvm
-(require "src/racket/utils.rkt")              ; read-begin, simplify-ir
+(require (only-in "src/racket/top-level.rkt" top-level))
+(require (only-in "src/racket/desugar.rkt" desugar))
+(require (only-in "src/racket/cps.rkt" cps-convert))
+(require (only-in "src/racket/anf.rkt" anf-convert))
+(require (only-in "src/racket/assignment-convert.rkt" assignment-convert))
+(require (only-in "src/racket/alphatize.rkt" alphatize))
+(require (only-in "src/racket/closure-convert.rkt" closure-convert proc->llvm))
+(require (only-in "src/racket/utils.rkt" read-begin simplify-ir))
 
 (require threading)
 
@@ -35,14 +35,14 @@
 
 (define libgc-include-dir
   (match (system-type 'os)
-    ['macosx (path->string (build-path "/" "usr" "local" "Cellar" "bdw-gc" "7.6.0" "include"))]
+    ['macosx (path->string (build-path "/" "usr" "local" "Cellar" "bdw-gc" "8.0.4" "include"))]
     ['unix (path->string (build-path "/" "usr" "local" "include"))]
     ['windows (raise 'windows-not-supported)]
     [else (raise 'unknown-os-type)]))
 
 (define libgc-obj-path
   (match (system-type 'os)
-    ['macosx (path->string (build-path "/" "usr" "local" "Cellar" "bdw-gc" "7.6.0" "lib" "libgc.a"))]
+    ['macosx (path->string (build-path "/" "usr" "local" "Cellar" "bdw-gc" "8.0.4" "lib" "libgc.a"))]
     ['unix (path->string (build-path "/" "usr" "local" "lib" "libgc.a"))]
     ['windows (raise 'windows-not-supported)]
     [else (raise `('unsupported-os-type ,else))]))

@@ -1,9 +1,10 @@
 #lang racket
 
 
-(require "compiler.rkt") #; (libgc-include-dir libgc-obj-path
-                                               clang++-path compiler-flags
-                                               scm->exe llvmir->exe scm->llvmir gen-header-name)
+(require (only-in "compiler.rkt"
+                  libgc-include-dir libgc-obj-path
+                  clang++-path compiler-flags
+                  scm->exe llvmir->exe scm->llvmir gen-header-name))
 
 ; TODO: delete all the generated headers at some point? Maybe after
 ; everything works and no error generated?

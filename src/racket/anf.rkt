@@ -5,8 +5,40 @@
 (require "utils.rkt")
 
 ; ANF conversion happens after Alphatization, and proceeds CPS Conversion.
+; Originally created in:
+; 'The Essence of Compiling With Continuations' by Flanagan et al.
+
 
 ; This gives an explicit evaluation order to each expression.
+; it also segregates the grammar into complex and atomic expressions
+; which is useful for understanding program flow.
+
+; e ::= (let ([x e] ...) e)
+;     | (lambda (x ...) e)
+;     | (lambda x e)
+;     | (apply e e)
+;     | (e e ...)
+;     | (prim op e ...)
+;     | (apply-prim op e)
+;     | (if e e e)
+;     | (call/cc e)
+;     | x
+;     | (quote dat)
+
+; anf-convert =>
+
+; e ::= (let ([x e]) e)
+;     | (apply ae ae)
+;     | (ae ae ...)
+;     | (prim op ae ...)
+;     | (apply-prim op ae)
+;     | (if ae e e)
+;     | (call/cc ae)
+;     | ae
+; ae ::= (lambda (x ...) e)
+;      | (lambda x e)
+;      | x
+;      | (quote dat)
 
 (define (atomic? e)
   (match e
@@ -15,8 +47,7 @@
     [`(lambda ,binds ,e) #t]
     [else #f]))
 
-; ANF conversion adapted from Flanagan et al.
-
+; we defined these inner functions using continuation passing style, instead of direct style.
 ; In CPS, you dont return you simply call the continuation instead
 ; thats what we do in all these inner functions, because CPS made it a bit easier to implement!
 (define (anf-convert e)
@@ -79,30 +110,3 @@
 
 ; for ez testing...
 (define anf anf-convert)
-
-; e ::= (let ([x e] ...) e)
-;     | (lambda (x ...) e)
-;     | (lambda x e)
-;     | (apply e e)
-;     | (e e ...)
-;     | (prim op e ...)
-;     | (apply-prim op e)
-;     | (if e e e)
-;     | (call/cc e)
-;     | x
-;     | (quote dat)
-
-; anf-convert =>
-
-; e ::= (let ([x e]) e)
-;     | (apply ae ae)
-;     | (ae ae ...)
-;     | (prim op ae ...)
-;     | (apply-prim op ae)
-;     | (if ae e e)
-;     | (call/cc ae)
-;     | ae
-; ae ::= (lambda (x ...) e)
-;      | (lambda x e)
-;      | x
-;      | (quote dat)

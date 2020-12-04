@@ -4,6 +4,39 @@
 
 (require "utils.rkt")
 
+; ANF Grammar
+; e ::= (let ([x e]) e)
+;     | (apply ae ae)
+;     | (ae ae ...)
+;     | (prim op ae ...)
+;     | (apply-prim op ae)
+;     | (if ae e e)
+;     | (call/cc ae)
+;     | ae
+; ae ::= (lambda (x ...) e)
+;      | (lambda x e)
+;      | x
+;      | (quote dat)
+
+; cps-convert => 
+
+; e ::= (let ([x (apply-prim op ae)]) e)
+;     | (let ([x (prim op ae ...)]) e)
+;     | (let ([x (lambda x e)]) e)
+;     | (let ([x (lambda (x ...) e)]) e)
+;     | (let ([x (quote dat)]) e)
+;     | (apply ae ae)
+;     | (ae ae ...)
+;     | (if ae e e)
+; ae ::= (lambda (x ...) e)
+;      | (lambda x e)
+;      | x
+;      | (quote dat)
+
+; CPS conversion turns a direct-style program into a continuation-passing style program.
+; This ensures that 100% of functions are tail-recursive, so practically removes the stack.
+
+
 (define (cps-convert anf-code)
   ; TODO docs for this func.
   ; convert an ANF-AE to CPS
@@ -72,34 +105,4 @@
       [`(,aef ,aes ...) `(,(conv-atomic aef) ,cae ,@(map conv-atomic aes))]
       [raise `(bad-complex-syntax ,exp)]))
   (conv-complex anf-code '(lambda (k x) (let ([_1 (prim halt x)]) (k x)))))
-
-; ANF Grammar
-; e ::= (let ([x e]) e)
-;     | (apply ae ae)
-;     | (ae ae ...)
-;     | (prim op ae ...)
-;     | (apply-prim op ae)
-;     | (if ae e e)
-;     | (call/cc ae)
-;     | ae
-; ae ::= (lambda (x ...) e)
-;      | (lambda x e)
-;      | x
-;      | (quote dat)
-
-; cps-convert => 
-
-; e ::= (let ([x (apply-prim op ae)]) e)
-;     | (let ([x (prim op ae ...)]) e)
-;     | (let ([x (lambda x e)]) e)
-;     | (let ([x (lambda (x ...) e)]) e)
-;     | (let ([x (quote dat)]) e)
-;     | (apply ae ae)
-;     | (ae ae ...)
-;     | (if ae e e)
-; ae ::= (lambda (x ...) e)
-;      | (lambda x e)
-;      | x
-;      | (quote dat)
-
 

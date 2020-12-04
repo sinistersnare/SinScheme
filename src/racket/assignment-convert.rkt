@@ -1,11 +1,40 @@
 #lang racket
 
-; assignment-convert converts set! (assignment) into boxed references on the heap.
-; this makes SSA form a lot easier to achieve.
-
 (provide assignment-convert)
 
 (require (only-in "utils.rkt" prim? datum?))
+
+; assignment-convert converts set! (assignment) into boxed references on the heap.
+; this makes SSA form a lot easier to achieve.
+
+; The output of assignment 2:
+; e ::= (let ([x e] ...) e)
+;     | (lambda (x ...) e)
+;     | (lambda x e)
+;     | (apply e e)
+;     | (e e ...)
+;     | (prim op e ...)
+;     | (apply-prim op e)
+;     | (if e e e)
+;     | (set! x e)
+;     | (call/cc e)
+;     | x
+;     | (quote dat)
+
+; assignment-convert =>
+
+;;; set! is removed and replaced with vector-set!
+; e ::= (let ([x e] ...) e)
+;     | (lambda (x ...) e)
+;     | (lambda x e)
+;     | (apply e e)
+;     | (e e ...)
+;     | (prim op e ...)
+;     | (apply-prim op e)
+;     | (if e e e)
+;     | (call/cc e)
+;     | x
+;     | (quote dat)
 
 ; 1) Compute a list of all names that are mutable
 ; 2) While traversing, if a binding is made that is in the list of mutable names
@@ -112,32 +141,3 @@
   (if (set-member? maybe-muts var)
       (check var e)
       #f))
-
-; The output of assignment 2:
-; e ::= (let ([x e] ...) e)
-;     | (lambda (x ...) e)
-;     | (lambda x e)
-;     | (apply e e)
-;     | (e e ...)
-;     | (prim op e ...)
-;     | (apply-prim op e)
-;     | (if e e e)
-;     | (set! x e)
-;     | (call/cc e)
-;     | x
-;     | (quote dat)
-
-; assignment-convert =>
-
-;;; set! is removed and replaced with vector-set!
-; e ::= (let ([x e] ...) e)
-;     | (lambda (x ...) e)
-;     | (lambda x e)
-;     | (apply e e)
-;     | (e e ...)
-;     | (prim op e ...)
-;     | (apply-prim op e)
-;     | (if e e e)
-;     | (call/cc e)
-;     | x
-;     | (quote dat)

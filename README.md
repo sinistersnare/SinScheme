@@ -15,27 +15,36 @@ Boehm-GC is a required dependency. I am pretty sure it can be downloaded on home
 
 `$ brew install libgc`
 
+The installed files should be somehwere like `/usr/local/Cellar/bdw-gc/`. Make sure you
+write the locations correctly as noted below.
+
 ### Linux ###
 
 I installed BoehmGC on linux from [their page](https://www.hboehm.info/gc/simple_example.html),
 but my configure command was:
 
 ```bash
-$ ./configure --prefix=/usr/local/ --disable-threads --enable-cplusplus --enable-static
+$ ./configure --prefix=/usr/local/ --disable-threads --enable-static
 ```
 
-***Note***: you may need to edit `compiler.rkt` to have the correct libgc path.
-You will see the comment.
+***Note***: you probably need to edit `compiler.rkt` to have the correct libgc path.
+You will see the relevant comment.
 
 If you have easy instructions on how to do it for your platform, please send a PR!!!
 
 ## TODO: ##
 * Document how the fuck -e works (for directly compiling code)
+	* Would be nice to completely revamp the compiler interface.
 * Add println and displayln primitives
 * Support variable shadowing in desugar. Test by replacing `displayln` with `println` in hello.sinscm
 * Support t0 => e0 cond-clause syntax in desugar (or top-level?).
 * Actually desugar dynamic-wind and dont add it to the wrapped runtime funcs.
+	* See https://www.scheme.com/tspl4/control.html
 * Do user-defined functions ensure arg count is good? If not, when we do closure-conversion, and turn all lambdas into vararg, we should add some 'if numargs expected is not given, fail' code...? May be some nontrivial stuff cause of how barren the grammar is, but can be a function that wraps...? Maybe!
+	* Would only work in trivial case, may require CFA/program-analysis.
+* Rewrite runtime in Rust. Because Rust > C++, fite me.
+	* Will require a GC implementation.... FUN!
+	* And possibly an extra step to integrate `cargo` instead of shelling out to g++ in racket.
 
 ## Running The Compiler ##
 

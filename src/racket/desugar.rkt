@@ -3,7 +3,65 @@
 (provide desugar desugar-aux)
 (require "utils.rkt")
 
-; WRITTEN BY DAVIS!
+;Input Language
+
+; e ::= (letrec* ([x e] ...) e)
+;     | (letrec ([x e] ...) e)
+;     | (let* ([x e] ...) e)
+;     | (let ([x e] ...) e)
+;     | (lambda (x ...) e)
+;     | (lambda x e)
+;     | (lambda (x ...+ . x) e)
+;     | (dynamic-wind e e e)
+;     | (guard (x cond-claue ...) e)
+;     | (raise e)
+;     | (delay e)
+;     | (force e)
+;     | (and e ...)
+;     | (or e ...)
+;     | (cond cond-clause ...)
+;     | (case e case-clause ...)
+;     | (if e e e)
+;     | (when e e)
+;     | (unless e e)
+;     | (set! x e)
+;     | (begin e ...+)
+;     | (call/cc e)
+;     | (apply e e)
+;     | (e e ...)
+;     | x
+;     | op
+;     | (quote dat)
+
+; cond-clause ::= (e) | (e e) | (else e)
+; case-clause ::= ((dat ...) e) | (else e)
+; dat is a datum satisfying datum?
+; x is a variable satisfing symbol?
+; op satisfys prim?
+
+; desugar =>
+
+; e ::= (let ([x e] ...) e)
+;     | (lambda (x ...) e)
+;     | (lambda x e)
+;     | (apply e e)
+;     | (prim op e ...)
+;     | (apply-prim op e)
+;     | (if e e e)
+;     | (set! x e)
+;     | (call/cc e)
+;     | (e e ...)
+;     | x
+;     | (quote dat)
+
+
+
+
+; Desugarging takes a program and removes a lot of 'redundant' cases.
+; This includes things like `cond`, `when`, and `if` which can all be
+; desugared into various usages of `if`.
+; The result is a much smaller grammar, which makes more complicated
+; compiler passes easier to implement.
 
 (define (desugar e) (desugar-aux (wrap e)))
 
@@ -11,7 +69,8 @@
   (match e
     ; THIS IS A HACK!!!! I didnt want to figure out how to
     ; properly desugar prim, and this was ez.
-    ; apply-prim is in the target lang, so if this is seen, its already been desugared...
+    ; apply-prim is in the target lang, and not source
+    ; so if this is seen, its already been desugared...
     ; BAD DAVIS, BAD!
     [`(apply-prim ,rest ...) `(apply-prim ,@rest)]
     ; match for prim anywhere in a form, and desugar it generally to apply-prim.
