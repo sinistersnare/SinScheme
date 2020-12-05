@@ -70,7 +70,8 @@
 (define (new-desugar-test test-file-path)
   (lambda ()
     (define test-contents (read (open-input-string (file->string test-file-path))))
-    (test-desugar desugar test-contents)))
+    (with-handlers ([exn:fail? (begin #f)])
+      (test-desugar desugar test-contents))))
 
 (define (get-tests-at testsloc)
   (map (λ (p) (string->path (string-append testsloc (path->string p))))
@@ -100,7 +101,7 @@
 (define (run-single testcase)
   (match-define (list test-name exec) testcase)
   (define exec-result
-    (with-handlers ([exn:fail? identity]) (exec)))
+    (with-handlers ([exn:fail? (lambda (ex) (displayln ex) #f)]) (exec)))
   (define passed (eq? exec-result #t))
   (displayln (format "Test '~a' ~a." test-name
                      (if passed "passed" "failed")))

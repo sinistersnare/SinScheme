@@ -42,8 +42,7 @@
         clang++-path-submit-server
         "clang++")))
 
-; if we implement prim shadowing in desugar, then we dont need to comment out things here. I think...
-; promise? provided as a function in desugar, and we dont allow shadowing rn.
+; TODO: add boolean? prim, make sure runtime has support for it.
 (define prims-list
   '(= > < <= >= + - * / promise?
       cons? null? cons car cdr list first second third fourth fifth
@@ -53,7 +52,9 @@
       set-rest set-remove hash hash-ref hash-set hash-count hash-keys
       hash-has-key? hash? list? void? procedure? number? integer?
       error void print println display write exit halt eq? eqv? equal? not))
+
 (define ok-set (list->set (string->list "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789$")))
+
 (define (c-name s)
   (foldr string-append
          ""
@@ -212,6 +213,7 @@
 
 ; tests if this expression conforms to
 ; what the desugar pass should output
+; TODO improve this so it says what var isnt in scope?
 (define (ir-exp? e [env (set)])
   (define (var? x) (symbol? x))
   (define ((rec/with env) e)
