@@ -1,0 +1,8 @@
+
+
+
+(let ([w '4])
+  ((lambda w (let ([y (set! w (prim car w))]) w))
+   w))
+
+

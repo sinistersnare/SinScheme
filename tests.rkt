@@ -4,9 +4,20 @@
 ;; Its pretty bad, i hacked it to work for this... so yeah
 
 (require (only-in "src/racket/utils.rkt"
-                  test-desugar read-begin eval-top-level))
+                  test-desugar test-alphatize
+                  test-anf-convert test-cps-convert
+                  test-closure-convert test-llvm-convert
+                  read-begin eval-top-level))
 
 (require (only-in "src/racket/desugar.rkt" desugar))
+
+(require (only-in "src/racket/alphatize.rkt" alphatize))
+(require (only-in "src/racket/assignment-convert.rkt" assignment-convert))
+
+(require (only-in "src/racket/anf.rkt" anf-convert))
+(require (only-in "src/racket/cps.rkt" cps-convert))
+(require (only-in "src/racket/closure-convert.rkt" closure-convert))
+(require (only-in "src/racket/llvm-convert.rkt" llvm-convert))
 
 (require (only-in "compiler.rkt"
                   gen-header-name
@@ -15,16 +26,16 @@
 
 (define (new-failing-test test-file-path)
   (lambda ()
-    (define exception-name (gensym 'ex))
     (define didnt-fail-tag (gensym 'did-not-fail))
     (define file-contents (file->string test-file-path))
-    (define guarded-code (format "(guard (~a ['~a #t] [else #f]) ~a (raise '~a))"
-                                 exception-name didnt-fail-tag file-contents didnt-fail-tag))
-    (define top-level-part-port (open-input-string guarded-code))
+    (define guarded-code `(guard (_ [',didnt-fail-tag #t] [else #f])
+                                 ,file-contents (raise ',didnt-fail-tag)))
+    (define guarded-string (symbol->string guarded-code))
+    (define top-level-part-port (open-input-string guarded-string))
     (define top-level-part-scm (read-begin top-level-part-port))
     (define top-level-part-value (eval-top-level top-level-part-scm))
 
-    (define llvm-part-port (open-input-string guarded-code))
+    (define llvm-part-port (open-input-string (symbol->string guarded-string)))
     (define gen-ll-name (gen-header-name))
     (define gen-exe-name (string-append "build/" (symbol->string (gensym 'genexe)) ".exe"))
     (scm->exe llvm-part-port gen-exe-name clang++-path compiler-flags
@@ -32,6 +43,7 @@
     (define llvm-part-value
       (read (open-input-string
              (with-output-to-string (lambda () (system (format "./~a" gen-exe-name)))))))
+    ; check that top-level and compiled codes return the same.
     (and top-level-part-value llvm-part-value)))
 
 (define (new-passing-test test-file-path)
@@ -70,14 +82,44 @@
 (define (new-desugar-test test-file-path)
   (lambda ()
     (define test-contents (read (open-input-string (file->string test-file-path))))
-    (with-handlers ([exn:fail? (begin #f)])
+    (with-handlers ([exn:fail? #f])
       (test-desugar desugar test-contents))))
 
-(define (get-tests-at testsloc)
+(define (new-alphatize-test test-file-path)
+  (lambda ()
+    (define test-contents (read (open-input-string (file->string test-file-path))))
+    (with-handlers ([exn:fail? #f])
+      (test-alphatize assignment-convert alphatize test-contents))))
+
+(define (new-anf-test test-file-path)
+  (lambda ()
+    (define test-contents (read (open-input-string (file->string test-file-path))))
+    (with-handlers ([exn:fail? #f])
+      (test-anf-convert anf-convert test-contents))))
+
+(define (new-cps-test test-file-path)
+  (lambda ()
+    (define test-contents (read (open-input-string (file->string test-file-path))))
+    (with-handlers ([exn:fail? #f])
+      (test-cps-convert cps-convert test-contents))))
+
+(define (new-clo-test test-file-path)
+  (lambda ()
+    (define test-contents (read (open-input-string (file->string test-file-path))))
+    (with-handlers ([exn:fail? #f])
+      (test-closure-convert closure-convert test-contents))))
+
+(define (new-llvm-test test-file-path)
+  (lambda ()
+    (define test-contents (read (open-input-string (file->string test-file-path))))
+    (with-handlers ([exn:fail? #f])
+      (test-llvm-convert llvm-convert test-contents))))
+
+(define (get-tests-at testsloc filetype)
   (map (λ (p) (string->path (string-append testsloc (path->string p))))
        (filter
-        (λ (p) (member (last (string-split (path->string p) "."))
-                       '("scm" "sinscm")))
+        (λ (p) (equal? (last (string-split (path->string p) "."))
+                       filetype))
         (directory-list testsloc))))
 
 ; takes a path like /a/b/c/d.boop and returns 'd'
@@ -92,11 +134,21 @@
        test-list))
 
 (define passing-tests (make-suite "passing-" new-passing-test
-                                  (get-tests-at "tests/passing/")))
+                                  (get-tests-at "tests/passing/" "sinscm")))
 (define failing-tests (make-suite "failing-" new-failing-test
-                                  (get-tests-at "tests/failing/")))
+                                  (get-tests-at "tests/failing/" "sinscm")))
 (define desugar-tests (make-suite "desugar-" new-desugar-test
-                                  (get-tests-at "tests/passes/desugar/")))
+                                  (get-tests-at "tests/passes/desugar/" "scm")))
+(define alphatize-tests (make-suite "alpha-" new-alphatize-test
+                                    (get-tests-at "tests/passes/alphatize/" "ir")))
+(define anf-tests (make-suite "anf-" new-anf-test
+                              (get-tests-at "tests/passes/anf/" "alpha")))
+(define cps-tests (make-suite "cps-" new-cps-test
+                              (get-tests-at "tests/passes/cps/" "anf")))
+(define clo-tests (make-suite "clo-" new-clo-test
+                              (get-tests-at "tests/passes/clo/" "cps")))
+(define llvm-tests (make-suite "llvm-" new-clo-test
+                               (get-tests-at "tests/passes/clo/" "proc")))
 
 (define (run-single testcase)
   (match-define (list test-name exec) testcase)
@@ -118,7 +170,10 @@
   (unless (empty? failed-tests)
     (displayln (format "Failed: [~a]" (string-join failed-tests ", ")))))
 
-(define all-tests (append passing-tests failing-tests desugar-tests))
+(define all-tests (append passing-tests failing-tests
+                          desugar-tests alphatize-tests
+                          anf-tests cps-tests
+                          clo-tests llvm-tests))
 (define (run-test/internal is-repl . args)
   ;; Run all tests, a specific test or suite, or print the available tests
   (match args
@@ -126,6 +181,11 @@
     [(list "passing") (run-suite passing-tests)]
     [(list "failing") (run-suite failing-tests)]
     [(list "desugar") (run-suite desugar-tests)]
+    [(list "alpha") (run-suite alphatize-tests)]
+    [(list "anf") (run-suite anf-tests)]
+    [(list "cps") (run-suite cps-tests)]
+    [(list "clo") (run-suite clo-tests)]
+    [(list "llvm") (run-suite llvm-tests)]
     [(list test-name)
      #:when (assoc test-name all-tests)
      (define passed (run-single (assoc test-name all-tests)))

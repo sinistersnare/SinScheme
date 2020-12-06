@@ -1,13 +1,11 @@
 #lang racket
 
 (provide desugar)
-(require (only-in "utils.rkt"
-                  prim? prims->list datum?
-                  test-desugar))
+(require (only-in "utils.rkt" symbol-append prim? prims->list datum?))
 
 
-;Input Language
-
+; Input Language
+;
 ; e ::= (letrec* ([x e] ...) e)
 ;     | (letrec ([x e] ...) e)
 ;     | (let* ([x e] ...) e)
@@ -80,9 +78,6 @@
 ; user placed into the key.
 (struct o (v) #:transparent)
 
-(define (symbol-append s1 s2)
-  (string->symbol (string-append (symbol->string s1) (symbol->string s2))))
-
 ; we prefix symbols when adding them to the env to ensure
 ; that they do not shadow special forms and prims in future passes.
 ; TODO: in the original solution, they didnt add the $ if it was already there
@@ -113,13 +108,11 @@
     ; so it still maps to a transformer function
     [`(,(? (λ (ef) (t? (hash-ref env ef #f))) tft) ,_ ...)
      (match-define (t tf) (hash-ref env tft))
-     ;(displayln `(got-tf ,tf))
      (tf e env)]
     ; match a primitive operator that has not been overridden,
     ; so it still maps to a primitive marker.
     [`(,(? prim? op) ,es ...)
      #:when (p? (hash-ref env op #f))
-     ;(displayln `(got-prim: ,op))
      (desugar-aux `(%%prim ,op ,@es) env)]
     ; the expression we are evaluating is an atomic symbol, not a list.
     ; We need to check if the symbol is a primitive, a shadowed symbol,
@@ -137,6 +130,9 @@
        [(o v) v]
        [(t badform) (error (format "special form '~a' in wrong position"
                                    badform))])]
+    ; TODO: ensure this compiles correctly.
+    [`#(,es ...) ; vector literal
+     (desugar-aux `(%%prim vector ,@es) env)]
     ; simple application, we desugar each part in the current env.
     [`(,es ...)
      (map (λ (e) (desugar-aux e env)) es)]
@@ -209,7 +205,7 @@
   (define temps (map (lambda (x) (gensym (symbol-append 'letrec-temp- x))) xs))
   (if (empty? xs) (desugar-aux body env)
       (desugar-aux
-       `(%%let ,(map list xs (map (λ (_) ''()) xs))
+       `(%%let ,(map (λ (x) `(,x (%%quote ()))) xs)
                (%%let ,(map list temps es)
                       (%%begin
                        ,@(map (lambda (x e) `(%%set! ,x ,e)) xs temps)
@@ -219,7 +215,7 @@
 (define (desugar-letrec* e env)
   (match-define `(,_ ([,xs ,es] ...) ,body) e)
   (desugar-aux
-   `(%%let ,(map (lambda (x) `(,x ''())) xs)
+   `(%%let ,(map (lambda (x) `(,x (%%quote ()))) xs)
            (%%begin ,@(map (lambda (x e) `(%%set! ,x ,e)) xs es) ,body))
    env))
 
@@ -349,7 +345,7 @@
                  (%%if (%%prim vector-ref ,promname (%%quote 1))
                        (%%prim vector-ref ,promname (%%quote 2))
                        (%%begin (%%prim vector-set! ,promname
-                                             (%%quote 1) (%%quote #t))
+                                        (%%quote 1) (%%quote #t))
                                 (%%let ([,computed ((%%prim vector-ref ,promname (%%quote 2)))])
                                        (%%prim vector-set! ,promname (%%quote 2) ,computed))
                                 (%%prim vector-ref ,promname (%%quote 2))))

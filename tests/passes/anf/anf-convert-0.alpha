@@ -1,0 +1,6 @@
+
+
+(let ([a '2]
+      [b (let ([c '4]) (prim + '3 (prim + c c)))])
+  (prim + a (prim * a b)))
+

@@ -1,0 +1,8 @@
+
+
+
+
+(let ([x ((lambda () (prim + '1 '2)))])
+  ((lambda (y) (prim * x y)) x))
+
+

@@ -3,9 +3,10 @@
 ; Written by Thomas Gilray and Javran Cheng
 
 (provide prim? reserved? prims->list
+         symbol-append
          c-name
          prim-name
-         prim-applyname
+         applyprim-name
          datum?
          read-begin
          test-top-level
@@ -26,7 +27,9 @@
          test-cps-convert
          proc-exp?
          test-closure-convert
-         test-proc->llvm)
+         test-llvm-convert)
+
+(require (only-in racket/format ~a))
 
 (define project-path (current-directory))
 (define libgc-path
@@ -53,7 +56,16 @@
       hash-has-key? hash? list? void? procedure? number? integer?
       error void print println display write exit halt eq? eqv? equal? not))
 
-(define ok-set (list->set (string->list "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789$")))
+(define ok-set (list->set (string->list (string-append "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+                                                       "abcdefghijklmnopqrstuvwxyz0123456789$"))))
+
+(define (symbol-append . ss)
+  (match ss
+    ['() (raise "symbol-append takes at least one symbol.")]
+    [`(,one) one]
+    [`(,one ,rest ...)
+     (string->symbol (string-append (~a one)
+                                    (~a (apply symbol-append rest))))]))
 
 (define (c-name s)
   (foldr string-append
@@ -65,7 +77,7 @@
               (string->list (symbol->string s)))))
 (define (prim-name op)
   (string-append "prim_" (c-name op)))
-(define (prim-applyname op)
+(define (applyprim-name op)
   (string-append "applyprim_" (c-name op)))
 (define (prims->list) prims-list)
 (define (prim? op)
@@ -74,8 +86,8 @@
       #f))
 
 (define reserved-list '(letrec letrec* let let* if and or set! quote begin
-                               cond case when unless delay force dynamic-wind
-                               raise guard call/cc prim apply-prim))
+                         cond case when unless delay force dynamic-wind
+                         raise guard call/cc prim apply-prim))
 
 (define (reserved? id) (if (member id reserved-list) #t #f))
 
@@ -164,7 +176,7 @@
     [`(cond ,(? cond-clause?) ... (else ,(? (rec/with env)))) #t]
     [`(case ,(? (rec/with env)) ,(? case-clause?) ...) #t]
     [`(case ,(? (rec/with env)) ,(? case-clause?) ...
-            (else ,(? (rec/with env)))) #t]
+        (else ,(? (rec/with env)))) #t]
     [`(and ,(? (rec/with env)) ...) #t]
     [`(or ,(? (rec/with env)) ...) #t]
     [`(when ,(? (rec/with env)) ,(? (rec/with env))) #t]
@@ -178,6 +190,7 @@
     [`(quote ,(? datum?)) #t]
     [`(,(? prim?) ,(? (rec/with env)) ...) #t]
     [`(apply ,(? (rec/with env)) ,(? (rec/with env))) #t]
+    [`#(,(? (rec/with env)) ...) #t]
     [`(,(? (rec/with env)) ,(? (rec/with env)) ...) #t]
     [else (pretty-print `(bad-scheme ,e ,env)) #f]))
 
@@ -191,7 +204,8 @@
   (if (equal? val1 val2)
       #t
       (begin
-        (display (format "Test-top-level: two different values (~a and ~a) before and after top-level processing\n"
+        (display (format (string-append "Test-top-level: two different values"
+                                        " (~a and ~a) before and after top-level processing\n")
                          val1 val2))
         #f)))
 
@@ -207,7 +221,8 @@
   (if (equal? val1 val2)
       #t
       (begin
-        (displayln (format "Test-desugar: two different values (~a and ~a) before and after desugaring"
+        (displayln (format (string-append "Test-desugar: two different values"
+                                          " (~a and ~a) before and after desugaring")
                            val1 val2))
         #f)))
 
@@ -268,7 +283,6 @@
        (T `(prim list ,@(map (lambda (d) `',d) lst)))]
       [`(quote ,other)
        `(quote ,other)]
-
       [`(prim +)
        ''0]
       [`(prim + ,e0)
@@ -286,7 +300,6 @@
        (T `(prim - (prim - ,e0 ,@(drop-right es 1)) ,(last es)))]
       [`(prim / ,e0 ,e1)
        `(prim / ,(T e0) ,(T e1))]
-
       ; Remove list, vector->apply vector, map foldl, foldr, drop, memv, >, >=, ...
       [`(prim list ,es ...) ; optimize
        `((lambda lst lst) ,@(map T es))]
@@ -294,6 +307,12 @@
        (T e0)]
       [`(prim vector ,es ...)
        (T `((lambda el (apply-prim vector el)) ,@es))]
+      ; hash is a vararg function, so it needs to be turned into an apply-prim...
+      ; (this change is based off the vector change)
+      ; Maybe there should be a list of vararg prims so the transformation is a bit
+      ; more general and less prone to breaking on a new prim?
+      [`(prim hash ,es ...)
+       (T `((lambda el (apply-prim hash el)) ,@es))]
       [`(prim foldl ,e0 ,e1 ,e2)
        `(%foldl1 ,@(map T (list e0 e1 e2)))]
       [`(prim foldr ,e0 ,e1 ,e2)
@@ -332,9 +351,14 @@
                                                            (prim cons (f (prim car lst))
                                                                  (%map f (prim cdr lst)))))))]
            [%take
-            (Ycmb (lambda (%take) (lambda (lst n) (if (prim = n '0) '() (if (prim null? lst) '()
-                                                                            (prim cons (prim car lst) (%take (prim cdr lst) (prim - n '1))))))))]
-           [%length (Ycmb (lambda (%length) (lambda (lst) (if (prim null? lst) '0 (prim + '1 (%length (prim cdr lst)))))))]
+            (Ycmb (lambda (%take)
+                    (lambda (lst n) (if (prim = n '0) '()
+                                        (if (prim null? lst) '()
+                                            (prim cons (prim car lst)
+                                                  (%take (prim cdr lst) (prim - n '1))))))))]
+           [%length (Ycmb (lambda (%length)
+                            (lambda (lst) (if (prim null? lst) '0
+                                              (prim + '1 (%length (prim cdr lst)))))))]
            [%foldl1
             (Ycmb
              (lambda (%foldl1)
@@ -384,7 +408,8 @@
                              acc
                              (let ([lsts+ (%map1 (lambda (x) (prim cdr x)) lsts)]
                                    [vs (%map1 (lambda (x) (prim car x)) lsts)])
-                               (let ([acc+ (apply f (%foldr (lambda (a b) (prim cons a b)) (prim cons acc '()) vs))])
+                               (let ([acc+ (apply f (%foldr (lambda (a b) (prim cons a b))
+                                                            (prim cons acc '()) vs))])
                                  (apply %foldl (prim cons f (prim cons acc+ lsts+))))))))))]
                  [%>
                   (lambda (a b) ; we'll assume comparitors are binary, but we could tweak this here
@@ -396,7 +421,8 @@
                             (let ([_0 (set! %append (lambda (ls0 ls1)
                                                       (if (prim null? ls0)
                                                           ls1
-                                                          (prim cons (prim car ls0) (%append (prim cdr ls0) ls1)))))])
+                                                          (prim cons (prim car ls0)
+                                                                (%append (prim cdr ls0) ls1)))))])
                               %append))]
                  [%list?
                   (lambda (a)
@@ -428,7 +454,8 @@
                  [%/ (lambda args (if (prim null? args) '1
                                       (if (prim null? (prim cdr args))
                                           (prim car args)
-                                          (%foldl1 (lambda (n v) (prim / v n)) (prim car args) (prim cdr args)))))]
+                                          (%foldl1 (lambda (n v) (prim / v n))
+                                                   (prim car args) (prim cdr args)))))]
                  [%first (lambda (x) (prim car x))]
                  [%second (lambda (x) (prim car (prim cdr x)))]
                  [%third (lambda (x) (prim car (prim cdr (prim cdr x))))]
@@ -452,7 +479,8 @@
           #t
           (begin
             (if correct
-                (display (format "Test-alphatized: two different values (~a and ~a) before and after boxing and alphatizing.\n"
+                (display (format (string-append "Test-alphatized: two different values (~a and ~a)"
+                                                " before and after boxing and alphatizing.\n")
                                  val (eval-ir alphatized-e)))
                 (display "Output from boxing and alphatizing does not fit the output grammar.\n"))
             #f))
@@ -489,7 +517,8 @@
       [`(quote ,(? datum?)) #t]
       [`(prim ,(? prim?) ,(? alpha?) ...) #t]
       [`(apply-prim ,(? prim?) ,(? alpha?)) #t]
-      [`(,(? (and/c (not/c (lambda (x) (member x '(let lambda apply if call/cc quote prim quote-prim))))
+      [`(,(? (and/c (not/c (lambda (x)
+                             (member x '(let lambda apply if call/cc quote prim quote-prim))))
                     alpha?))
          ,(? alpha?) ...) #t]
       [else (pretty-print `(bad-alphatized ,e)) #f]))
@@ -505,7 +534,8 @@
       #t
       (begin
         (if correct
-            (display (format "Test-anf-convert: two different values (~a and ~a) before and after anf conversion.\n"
+            (display (format (string-append "Test-anf-convert: two different values"
+                                            " (~a and ~a) before and after anf conversion.\n")
                              val (eval-ir anf-e)))
             (display "Output from anf conversion does not fit ANF grammar.\n"))
         #f)))
@@ -541,7 +571,8 @@
       #t
       (begin
         (if correct
-            (display (format "Test-cps-convert: two different values (~a and ~a) before and after cps conversion.\n"
+            (display (format (string-append "Test-cps-convert: two different values"
+                                            " (~a and ~a) before and after cps conversion.\n")
                              val (eval-ir cps-e)))
             (display "Output from cps conversion does not fit the CPS grammar.\n"))
         #f)))
@@ -596,17 +627,18 @@
   ; freshly compile the header / runtime library if not already
   (when (not recent-header)
     (set! recent-header #t)
-    ;(system (string-append clang++-path " header.cpp " " -I " gc-include-path " -S -emit-llvm -o header.ll"))
+    ;(system (string-append clang++-path "
+    ;                       header.cpp " " -I " gc-include-path " -S -emit-llvm -o header.ll"))
     (system (string-append clang++-path " src/cpp/header.cpp " " -S -emit-llvm -o build/header.ll")))
   (define header-str (read-string 299999 (open-input-file "build/header.ll" #:mode 'text)))
   (define llvm (string-append header-str "\n\n;;;;;;\n\n" llvm-str))
   (display llvm (open-output-file "combined.ll" #:exists 'replace))
-  ;(system (string-append clang++-path " combined.ll " libgc-path " -I " gc-include-path " -lpthread -o bin"))
+  ;(system (string-append clang++-path "
+  ;                       combined.ll " libgc-path " -I " gc-include-path " -lpthread -o bin"))
   (system (string-append clang++-path " combined.ll " " -o bin"))
   (match-define `(,out-port ,in-port ,id ,err-port ,callback) (process "./bin"))
   (define starttime (current-milliseconds))
   (let loop ()
-    ;(sleep 1)
     (define time (current-milliseconds))
     (define status (callback 'status))
     (if (> time (+ starttime 12000))
@@ -629,7 +661,8 @@
       #t
       (begin
         (if correct
-            (display (format "Test-closure-convert: two different values (~a and ~a) before and after closure conversion.\n"
+            (display (format (string-append "Test-closure-convert: two different values"
+                                            " (~a and ~a) before and after closure conversion.\n")
                              val (eval-proc proc)))
             (display "Output from closure conversion does not fit the proc-exp? grammar.\n"))
         #f)))
@@ -637,14 +670,15 @@
 
 
 
-(define (test-proc->llvm proc->llvm prog)
+(define (test-llvm-convert llvm-convert prog)
   (define val (eval-proc prog))
-  (define llvm (proc->llvm prog))
+  (define llvm (llvm-convert prog))
   (define val0 (eval-llvm llvm))
   (if (equal? val val0)
       #t
       (begin
-        (display (format "Test-proc->llvm: two different values (~a and ~a) before and after closure conversion.\n"
+        (display (format (string-append "Test-llvm-convert: two different values"
+                                        " (~a and ~a) before and after closure conversion.\n")
                          val val0))
         #f)))
 
@@ -657,9 +691,12 @@
     (match e [`(match ,e0 ,clauses ... (,pat0 ,es ...))
               #:when (not (equal? pat0 'else))
               (rewrite-match `(match ,e0 ,@clauses (,pat0 ,@es) (else (raise "no match"))))]
-           [`(,e0 . ,es) (cons (rewrite-match e0) (rewrite-match es))]
-           [else e]))
-  (with-handlers ([exn:fail? (lambda (x) (pretty-print "Evaluation failed:") (pretty-print x) (pretty-print e) (error 'eval-fail))])
+      [`(,e0 . ,es) (cons (rewrite-match e0) (rewrite-match es))]
+      [else e]))
+  (with-handlers ([exn:fail? (lambda (x) (pretty-print "Evaluation failed:")
+                               (pretty-print x)
+                               (pretty-print e)
+                               (error 'eval-fail))])
     (parameterize ([current-namespace (make-base-namespace)])
       (namespace-require 'rnrs)
       (namespace-require 'racket)
@@ -674,7 +711,10 @@
 
 
 (define (racket-proc-eval procs)
-  (with-handlers ([exn:fail? (lambda (x) (begin (pretty-print "Evaluation failed:") (pretty-print x) (pretty-print procs) (error 'eval-fail)))])
+  (with-handlers ([exn:fail? (lambda (x) (begin (pretty-print "Evaluation failed:")
+                                                (pretty-print x)
+                                                (pretty-print procs)
+                                                (error 'eval-fail)))])
     (parameterize ([current-namespace (make-base-namespace)])
       (namespace-require 'rnrs)
       (namespace-require 'racket)
@@ -686,8 +726,9 @@
                            (define datum (lambda (d) d))
                            (define (prim op . args) (apply op args))
                            (define (apply-prim op args) (apply op args))
-                           (define (procedure? p) (and (vector? p)
-                                                       (equal? '%clo (vector-ref p (- (vector-length p) 1)))))
+                           (define (procedure? p)
+                             (and (vector? p)
+                                  (equal? '%clo (vector-ref p (- (vector-length p) 1)))))
                            (define (make-closure . args) (list->vector (append args '(%clo))))
                            (define env-ref vector-ref)
                            (define (clo-app f . vs) (apply (vector-ref f 0) (cons f vs)))

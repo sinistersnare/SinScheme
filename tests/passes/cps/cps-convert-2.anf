@@ -1,0 +1,8 @@
+(let ([r3 (prim + '3 '4)])
+     ((lambda (a b c)
+       (let ([r1 (prim + a b)])
+         (let ([r2 (prim * r1 c)])
+           r2)))
+     '1
+     '2
+     r3))

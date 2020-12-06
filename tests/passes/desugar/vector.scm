@@ -1,0 +1,5 @@
+(let ([v (vector '1 '2 '3 '4)])
+    (+ (vector-ref v '0)
+       (vector-ref v '1)
+       (vector-ref v '2)
+       (vector-ref v '3)))

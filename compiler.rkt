@@ -17,7 +17,8 @@
 (require (only-in "src/racket/anf.rkt" anf-convert))
 (require (only-in "src/racket/assignment-convert.rkt" assignment-convert))
 (require (only-in "src/racket/alphatize.rkt" alphatize))
-(require (only-in "src/racket/closure-convert.rkt" closure-convert proc->llvm))
+(require (only-in "src/racket/closure-convert.rkt" closure-convert))
+(require (only-in "src/racket/llvm-convert.rkt" llvm-convert))
 (require (only-in "src/racket/utils.rkt" read-begin simplify-ir))
 
 (require threading)
@@ -33,21 +34,25 @@
 ;; SET THESE TO YOUR LIBGC LOCATIONS PLZ
 ; windows not supported! It can be, I just dont know where the paths would be.
 
+(define macos-base (build-path "/" "usr" "local" "Cellar" "bdw-gc" "8.0.4"))
+(define unix-base (build-path "/" "usr" "local"))
+
 (define libgc-include-dir
   (match (system-type 'os)
-    ['macosx (path->string (build-path "/" "usr" "local" "Cellar" "bdw-gc" "8.0.4" "include"))]
-    ['unix (path->string (build-path "/" "usr" "local" "include"))]
+    ['macosx (path->string (build-path macos-base "8.0.4" "include"))]
+    ['unix (path->string (build-path unix-base "include"))]
     ['windows (raise 'windows-not-supported)]
     [else (raise 'unknown-os-type)]))
 
 (define libgc-obj-path
   (match (system-type 'os)
-    ['macosx (path->string (build-path "/" "usr" "local" "Cellar" "bdw-gc" "8.0.4" "lib" "libgc.a"))]
-    ['unix (path->string (build-path "/" "usr" "local" "lib" "libgc.a"))]
+    ['macosx (path->string (build-path macos-base "8.0.4" "lib" "libgc.a"))]
+    ['unix (path->string (build-path unix-base "lib" "libgc.a"))]
     ['windows (raise 'windows-not-supported)]
     [else (raise `('unsupported-os-type ,else))]))
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; END HERE ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+; fail if we cant find libgc stuff
 (unless (directory-exists? libgc-include-dir) (raise `('cant-find-include ,libgc-include-dir)))
 (unless (file-exists? libgc-obj-path) (raise `('cant-find-libgc-obj ,libgc-obj-path)))
 
@@ -59,12 +64,9 @@
 ; compile-code SinScheme -> String
 ; Takes a valid SinScheme program (a symbol, or an S-Expression) and compiles it to LLVM IR code.
 (define (compile-code scm)
-  #; (~> scm top-level desugar simplify-ir assignment-convert
-         alphatize anf-convert cps-convert closure-convert proc->llvm)
-  (proc->llvm (closure-convert
-               (cps-convert (anf-convert (alphatize (assignment-convert
-                                                     (simplify-ir (desugar (top-level scm))))))))))
-
+  (llvm-convert (closure-convert
+                 (cps-convert (anf-convert (alphatize (assignment-convert
+                                                       (simplify-ir (desugar (top-level scm))))))))))
 
 ;; End actual LLVM emitter code.
 

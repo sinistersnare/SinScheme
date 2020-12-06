@@ -1,511 +1,201 @@
 #lang racket
 
-(require "utils.rkt")
+(require (only-in "utils.rkt"
+                  symbol-append datum?))
 
-(provide closure-convert
-         proc->llvm)
+(provide closure-convert)
 
-; This file does 2 very important things:
-; 1) Closure conversion, turning bare lambdas into closures, which pair them with an environment.
-;    This pass outputs a grammar that is a list of procedures that can
-;    each be translated directly into a LLVM code.
-; 2) LLVM-IR emission, turning our closure-converted language into LLVM IR.
-;    This involves a lot of string formatting. Beware.
-
-; Pass that removes lambdas and datums as atomic and forces them to be let-bound
-;   ...also performs a few small optimizations
-(define (simplify-ae e)
-  (define (wrap-aes aes wrap)
-    (match-define (cons xs wrap+)
-      (foldr (lambda (ae xs+wrap)
-               (define gx (gensym 'arg))
-               (if (symbol? ae)
-                   (cons (cons ae (car xs+wrap))
-                         (cdr xs+wrap))
-                   (cons (cons gx (car xs+wrap))
-                         (lambda (e)
-                           (match ae
-                             [`(lambda ,xs ,body)
-                              `(let ([,gx (lambda ,xs ,(simplify body))])
-                                 ,((cdr xs+wrap) e))]
-                             [`',dat
-                              `(let ([,gx ',dat])
-                                 ,((cdr xs+wrap) e))])))))
-             (cons '() wrap)
-             aes))
-    (wrap+ xs))
-  (define (simplify e)
-    (match e
-      [`(let ([,x (lambda ,xs ,elam)]) ,e0)
-       `(let ([,x (lambda ,xs ,(simplify-ae elam))]) ,(simplify e0))]
-      [`(let ([,x ',dat]) ,e0)
-       `(let ([,x ',dat]) ,(simplify e0))]
-      [`(let ([,x (prim ,op ,aes ...)]) ,e0)
-       (wrap-aes aes (lambda (xs) `(let ([,x (prim ,op ,@xs)]) ,(simplify e0))))]
-      [`(let ([,x (apply-prim ,op ,aes ...)]) ,e0)
-       (wrap-aes aes (lambda (xs) `(let ([,x (apply-prim ,op ,@xs)]) ,(simplify e0))))]
-      [`(if (lambda . ,_) ,et ,ef)
-       (simplify et)]
-      [`(if '#f ,et ,ef)
-       (simplify ef)]
-      [`(if ',dat ,et ,ef)
-       (simplify et)]
-      ;TODO: optimization with 0-CFA to tell if some x is false & has no side effects?
-      [`(if ,(? symbol? x) ,et ,ef)
-       `(if ,x ,(simplify et) ,(simplify ef))]
-      [`(apply ,ae0 ,ae1)
-       (define out (wrap-aes (list ae0 ae1) (lambda (xs) `(apply . ,xs))))
-       ; (disp "OUT:: " out)
-       out]
-      [`(,aes ...)
-       (wrap-aes aes (lambda (xs) xs))]))
-  (simplify e))
+; Input Language
+;
+; e  ::= (let ([x (apply-prim op ae)]) e)
+;      | (let ([x (prim op ae ...)]) e)
+;      | (let ([x (lambda (x ...) e)]) e)
+;      | (let ([x (lambda x e)]) e)
+;      | (let ([x (quote dat)]) e)
+;      | (apply ae ae)
+;      | (ae ae ...)
+;      | (if ae e e)
+;
+; ae ::= (lambda (x ...) e)
+;      | (lambda x e)
+;      | x
+;      | (quote dat)
+;
+; Output Language
+;
+; p ::= ((proc (x x ...) e) ...)
+; e ::= (let ([x (apply-prim op x)]) e)
+;     | (let ([x (prim op x ...)]) e)
+;     | (let ([x (make-closure x x ...)]) e)
+;     | (let ([x (env-ref x nat)]) e)
+;     | (let ([x (quote dat)]) e)
+;     | (clo-app x x ...)
+;     | (if x e e)
 
 
-; Helper to remove vararg lambdas/callsites
-(define (remove-varargs e)
-  (define (layout-untagged fname args)
-    (define (layout fname args consname)
-      (match args
-        [(? empty?)
-         `(,fname ,consname)]
-        [`(,head . ,tail)
-         (define cname (gensym 'arglist))
-         `(let ([,cname (prim cons ,head ,consname)]) ,(layout fname tail cname))]))
-    (define consnil (gensym 'consnil))
-    `(let ([,consnil '()]) ,(layout fname (reverse args) consnil)))
-  (define (remove e)
-    (match e
-      [`(let ([,x ',dat]) ,e0)
-       `(let ([,x ',dat]) ,(remove e0))]
-      [`(let ([,x (prim ,op ,xs ...)]) ,e0)
-       `(let ([,x (prim ,op ,@xs)]) ,(remove e0))]
-      [`(let ([,x (apply-prim ,op ,y)]) ,e0)
-       `(let ([,x (apply-prim ,op ,y)]) ,(remove e0))]
-      [`(let ([,x (lambda (,xs ...) ,body)]) ,e0)
-       ; turns (xs ...) into x and immediately into (x)
-       ; by adding the needed car/cdr calls and let bindings
-       (define gx (gensym 'rvp))
-       (define gx+e
-         (foldr (lambda (x gx+e)
-                  (define gx (gensym 'rvp))
-                  (cons gx
-                        `(let ([,x (prim car ,gx)])
-                           (let ([,(car gx+e) (prim cdr ,gx)])
-                             ,(cdr gx+e)))))
-                (cons (gensym 'na) (remove body))
-                xs))
-       `(let ([,x (lambda (,(car gx+e)) ,(cdr gx+e))])
-          ,(remove e0))]
-      [`(let ([,x (lambda ,y ,body)]) ,e0)
-       `(let ([,x (lambda (,y) ,(remove body))])
-          ,(remove e0))]
-      [`(if ,x ,e0 ,e1)
-       `(if ,x ,(remove e0) ,(remove e1))]
-      [`(apply ,f ,args)
-       `(,f ,args)]
-      [`(,fname ,args ...)
-       ; (displayln (format "fname:: ~s :: args ~s" fname args))
-       (layout-untagged fname args)]))
-  (remove e))
+; This file does closure conversion.
+; We turn syntactic lambdas into closures, which pair them with an environment.
+; This pass outputs a grammar that is a list of procedures.
+; Each proc in this list can be directly translated to LLVM IR.
+
+; removes lambdas and datums from ae and forces them to be let bound.
+; symbols are the only ae left after this
+; TODO: test this? do it lazy davis
+(define (remove-ae-forms ce)
+  ; takes a function to call after all aes have been processed
+  ; when encountering a non-symbol ae, will expand it to a let form,
+  ; and then continue. After all have been processed, fin is used
+  ; to let the caller determine the final expression in the chain of lets.
+  (define (expand-aes fin todo done)
+    (match todo
+      ; we accumulate done backwards, so reverse it at the end.
+      ['() (fin (reverse done))]
+      [`(,hae ,tae ...)
+       (define aearg (gensym '%%%ae))
+       (if (symbol? hae)
+           (expand-aes fin tae (cons hae done))
+           (remove-ae-forms `(let ([,aearg ,hae]) ,(expand-aes fin tae (cons aearg done)))))]))
+  (match ce
+    ; apply-prim removal
+    [`(let ([,x (apply-prim ,op ,ae)]) ,letbody)
+     (expand-aes (λ (done) `(let ([,x (apply-prim ,op ,@done)]) ,(remove-ae-forms letbody)))
+                 (list ae) '())]
+    ; Prim removal
+    [`(let ([,x (prim ,op ,aes ...)]) ,letbody)
+     (expand-aes (λ (done) `(let ([,x (prim ,op ,@done)]) ,(remove-ae-forms letbody))) aes '())]
+    ; Lambda removal
+    [`(let ([,x (lambda ,xargs ,lambody)]) ,letbody)
+     `(let ([,x (lambda ,xargs ,(remove-ae-forms lambody))]) ,(remove-ae-forms letbody))]
+    ; Dat removal
+    [`(let ([,x ',dat]) ,letbody)
+     `(let ([,x ',dat]) ,(remove-ae-forms letbody))]
+    ; apply removal
+    [`(apply ,aef ,aearglist)
+     (expand-aes (λ (done) `(apply ,@done)) (list aef aearglist) '())]
+    ; If removal
+    [`(if ,aec ,et ,ef)
+     (expand-aes (λ (done) `(if ,@done ,(remove-ae-forms et) ,(remove-ae-forms ef))) (list aec) '())]
+    ; application removal
+    [`(,aef ,aes ...)
+     (expand-aes (λ (done) done) (cons aef aes) '())]))
+
+; quick function in effort of making more readable arg-lists.
+(define (number->symbol n)
+  (string->symbol (number->string n)))
+
+; turn (λ (xs ...) e) -> (λ xs e) -> (λ (xs) e)
+; turn (λ xs e) -> (λ (xs) e)
+; AKA turn every λ into a 1-arg positional that takes an explicit list
+; and change call-sites to make the lists
+; This takes the grammar generated by remove-ae-forms,
+; so lambdas are guaranteed to be let bound, and the only ae is a symbol.
+; a nice side effect is that this pass removes the 'apply' form, as thats what everything becomes!
+(define (unify-lambdas ce)
+  (match ce
+    [`(let ([,x (apply-prim ,op ,ae)]) ,letbody)
+     `(let ([,x (apply-prim ,op ,ae)]) ,(unify-lambdas letbody))]
+    [`(let ([,x (prim ,op ,aes ...)]) ,letbody)
+     `(let ([,x (prim ,op ,@aes)]) ,(unify-lambdas letbody))]
+    [`(let ([,x (lambda (,xs ...) ,lambody)]) ,letbody)
+     (define (listify-lam todo restarg)
+       (define nextrestarg (gensym '%%%arglist))
+       (match todo
+         ['() (unify-lambdas lambody)]
+         ; special case so we dont have a useless binding at the end
+         [`(,h)
+          `(let ([,h (prim car ,restarg)]) ,(unify-lambdas lambody))]
+         [`(,h ,t ...)
+          `(let ([,h (prim car ,restarg)])
+             (let ([,nextrestarg (prim cdr ,restarg)])
+               ,(listify-lam t nextrestarg)))]))
+     (define restarg (gensym '%%%arglist))
+     `(let ([,x (lambda (,restarg) ,(listify-lam xs restarg))]) ,(unify-lambdas letbody))]
+    [`(let ([,x (lambda ,xvararg ,lambody)]) ,letbody)
+     `(let ([,x (lambda (,xvararg) ,(unify-lambdas lambody))]) ,(unify-lambdas letbody))]
+    [`(let ([,x ',dat]) ,letbody)
+     `(let ([,x ',dat]) ,(unify-lambdas letbody))]
+    [`(apply ,aef ,aelist)
+     `(,aef ,aelist)]
+    [`(if ,aec ,et ,ef)
+     `(if ,aec ,(unify-lambdas et) ,(unify-lambdas ef))]
+    [`(,aef ,aes ...)
+     ; to create a list in CPS, we need to construct
+     ; each cons-cell 1-by-1. All the appending is just
+     ; to make nice arg-names like '%%%argsXXXX-fname-N
+     ; so we can more easily see how far into the args list we are.
+     (define (layout-untagged fname args argsname count)
+       (match args
+         ['() `(,fname ,(symbol-append argsname count))]
+         [`(,h ,t ...)
+          `(let ([,(symbol-append argsname (add1 count))
+                  (prim cons ,h ,(symbol-append argsname count))])
+             ,(layout-untagged aef t argsname (add1 count)))]))
+     ; This is the base-name of the arg list, we append the arg number to it.
+     (define argsname (symbol-append (gensym '%%%args) '- aef '-))
+     ; we start with null, and then as we consume args, we add to the list.
+     `(let ([,(symbol-append argsname (number->symbol 0)) '()])
+        ,(layout-untagged aef (reverse aes) argsname 0))]))
 
 ; (f a b c) -> (clo-app f a b c) -> (C-style-app f[0] f a b c)
 ; call simplify-ae on input to closure convert, then remove vararg callsites/lambdas
 ; simplify-ae also forced args to `apply` and `apply-prim` be let-bound symbols.
 ; which makes processing easier here.
 (define (closure-convert cps)
-  (define scps (simplify-ae cps))
-  (define no-varargs-cps (remove-varargs scps))
-  ; Exp x List[Proc] -> Exp x Set[Var] x List[Proc]
-  (define (bottom-up e procs)
+  (define scps (remove-ae-forms cps))
+  (define no-varargs-cps (unify-lambdas scps))
+  ; take an expression and return:
+  ;   the expression for the given expressions closure,
+  ;   the set of free vars in the expression,
+  ;   the list of generated procs.
+  (define (bottom-up-convert e)
     (match e
-      [`(let ([,x ',dat]) ,e0)
-       (match-define `(,e0+ ,free+ ,procs+) (bottom-up e0 procs))
-       `((let ([,x ',dat]) ,e0+)
-         ,(set-remove free+ x)
-         ,procs+)]
-      [`(let ([,x (prim ,op ,(? symbol? xs) ...)]) ,e0)
-       (match-define `(,e0+ ,free+ ,procs+)
-         (bottom-up e0 procs))
-       `((let ([,x (prim ,op ,@xs)]) ,e0+)
-         ,(set-remove (set-union free+ (list->set xs)) x)
-         ,procs+)]
-      [`(let ([,x (apply-prim ,op ,(? symbol? args))]) ,e0)
-       (match-define `(,e0+ ,free+ ,procs+) (bottom-up e0 procs))
-       `((let ([,x (apply-prim ,op ,args)]) ,e0+)
-         ,(set-remove (set-add free+ args) x) ; HELP: IS THIS RIGHT????
-         ,procs+)]
-      [`(let ([,x (lambda (,xs ...) ,body)]) ,e0)
-       (match-define `(,e0+ ,free0+ ,procs0+)
-         (bottom-up e0 procs))
-       (match-define `(,body+ ,freelam+ ,procs1+)
-         (bottom-up body procs0+))
-       (define env-vars (foldl (lambda (x fr) (set-remove fr x))
-                               freelam+
-                               xs))
-       (define ordered-env-vars (set->list env-vars))
-       (define lamx (gensym 'lam))
-       (define envx (gensym 'env))
-       (define body++ (cdr (foldl (lambda (x count+body)
-                                    (match-define (cons cnt bdy) count+body)
-                                    (cons (+ 1 cnt) `(let ([,x (env-ref ,envx ,cnt)]) ,bdy)))
-                                  (cons 0 body+) ; 0 count because im better than you.
-                                  ordered-env-vars)))
-       `((let ([,x (make-closure ,lamx ,@ordered-env-vars)]) ,e0+)
-         ,(set-remove (set-union free0+ env-vars) x)
-         ((proc (,lamx ,envx ,@xs) ,body++) . ,procs1+))]
-      [`(if ,(? symbol? x) ,e0 ,e1)
-       (match-define `(,e0+ ,free0+ ,procs0+)
-         (bottom-up e0 procs))
-       (match-define `(,e1+ ,free1+ ,procs1+)
-         (bottom-up e1 procs0+))
-       `((if ,x ,e0+ ,e1+)
-         ,(set-union free1+ free0+ (set x))
-         ,procs1+)]
-      [`(,(? symbol? xs) ...)
-       `((clo-app ,@xs)
-         ,(list->set xs)
-         ,procs)]))
-  (match-define `(,main-body ,free ,procs) (bottom-up no-varargs-cps '()))
-  `((proc (main) ,main-body) . ,procs))
-
-
-(define (unweirdify s) (string->symbol (c-name s)))
-
-(define (normalize-names proc)
-  ; dont unweirdify op names, because they will be converted in prim-name and applyprim-name
-  (match proc
-    [`(proc (,fname ,args ...) ,ebody)
-     `(proc (,(unweirdify fname) ,@(map unweirdify args)) ,(normalize-names ebody))]
-    [`(let ([,x (apply-prim ,op ,args)]) ,ebody)
-     `(let ([,(unweirdify x) (apply-prim ,op #;,(unweirdify op) ,(unweirdify args))])
-        ,(normalize-names ebody))]
-    [`(let ([,x (prim ,op ,args ...)]) ,ebody)
-     `(let ([,(unweirdify x) (prim ,op #;,(unweirdify op) ,@(map unweirdify args))])
-        ,(normalize-names ebody))]
-    [`(let ([,x (make-closure ,fname ,args ...)]) ,ebody)
-     `(let ([,(unweirdify x) (make-closure ,(unweirdify fname) ,@(map unweirdify args))])
-        ,(normalize-names ebody))]
-    [`(let ([,x (env-ref ,env ,(? natural? nat))]) ,ebody)
-     `(let ([,(unweirdify x) (env-ref ,(unweirdify env) ,nat)]) ,(normalize-names ebody))]
-    [`(let ([,x ',dat]) ,ebody)
-     `(let ([,(unweirdify x) ',dat]) ,(normalize-names ebody))]
-    [`(clo-app ,fname ,args ...)
-     `(clo-app ,(unweirdify fname) ,@(map unweirdify args))]
-    [`(if ,xcond ,et ,ef)
-     `(if ,(unweirdify xcond) ,(normalize-names et) ,(normalize-names ef))]))
-
-; Hex encodes a string and adds a null terminator.
-(define (c-encode s-unknown)
-  (define s (if (string? s-unknown) s-unknown (symbol->string s-unknown)))
-  (string-append (string-join (map (lambda (c)
-                                     (format "\\~a"
-                                             (~r (char->integer c)
-                                                 #:base '(up 16) #:min-width 2 #:pad-string "0")))
-                                   (string->list s)) "") "\\00"))
-(define (enc-len s) (/ (string-length s) 3))
-
-; Walk procedures and emit llvm code as a string		
-; (string-append "  %r0 = opcode i64 %a, %b \n"		
-;                "  %r1 = ... \n")
-
-;; TODO: does `store` need an `align 8`?
-(define (proc->llvm procs)
-  (define (make-args args)
-    (string-join (map (lambda (x) (format "%struct.SinObj* %~s" x)) args) ", "))
-  (define (ind n [level 2]) ; indent based levels, default tab level is 2.
-    (make-string (* n level) #\space))
-  (define (to-llvm proc globals [indent-level 0])
-    (match proc
-      [`(proc (,fname ,xs ...) ,e)
-       (format "~adefine void @proc_~a(~a) {\n~a\n}\n"
-               (ind indent-level) fname
-               (make-args xs) (to-llvm e globals (add1 indent-level)))]
-      [`(let ([,x (apply-prim ,op ,arglist)]) ,e)
-       (define applyprimptr (gensym 'applyprimptr))
-       (format "~a\n~a\n~a\n\n~a"
-               (format "~a%~s = alloca %struct.SinObj*, align 8"
-                       (ind indent-level) applyprimptr)
-               (format "~a%~s = call %struct.SinObj* @~a(%struct.SinObj* %~s)"
-                       (ind indent-level) x (prim-applyname op) arglist)
-               (format "~astore volatile %struct.SinObj* %~s, %struct.SinObj** %~s, align 8"
-                       (ind indent-level) x applyprimptr)
-               (to-llvm e globals indent-level))]
-      [`(let ([,x (prim - ,single-arg)]) ,ebody)
-       ; special case becuase simplify-ir handles this wrong.
-       (define stackptr (gensym 'prim_minus_stackptr))
-       (define consnil (gensym 'consnil))
-       (define arglist (gensym 'arglist))
-       (format "~a\n~a\n~a\n~a\n~a\n~a"
-               (format "~a%~a = alloca %struct.SinObj*, align 8" (ind indent-level) stackptr)
-               (format "~a%~a = call %struct.SinObj* @const_init_null()" (ind indent-level) consnil)
-               (format (string-append "~a%~a = call %struct.SinObj*"
-                                      " @prim_cons(%struct.SinObj* %~a, %struct.SinObj* %~a)")
-                       (ind indent-level) arglist single-arg consnil)
-               (format (string-append "~a%~a = call %struct.SinObj*"
-                                      " @applyprim__45(%struct.SinObj* %~a)")
-                       (ind indent-level) x arglist)
-               (format "~astore volatile %struct.SinObj* %~a, %struct.SinObj** %~a, align 8"
-                       (ind indent-level) x stackptr)
-               (to-llvm ebody globals indent-level))]
-      [`(let ([,x (prim ,op ,xs ...)]) ,e)
-       (define (layout-args args)
-         (match args
-           [(? empty?) ""]
-           [`(,single)
-            (format "%struct.SinObj* %~s" single)]
-           [`(,head . ,tail)
-            (format "%struct.SinObj* %~s, ~a" head (layout-args tail))]))
-       (define primptr (gensym 'primptr))
-       (format "~a\n~a\n~a\n\n~a"
-               (format "~a%~s = alloca %struct.SinObj*, align 8"
-                       (ind indent-level) primptr)
-               (format "~a%~s = call %struct.SinObj* @~a(~a)"
-                       (ind indent-level) x (prim-name op) (layout-args xs))
-               (format "~astore volatile %struct.SinObj* %~s, %struct.SinObj** %~s, align 8"
-                       (ind indent-level) x primptr)
-               (to-llvm e globals indent-level))]
-      ; TODO: can const_init_string be used here AKA is there another case of string?
-      ; TODO: Also void (check all const_init_*).
-      [`(let ([,x '#t]) ,e)
-       (define stackptr (gensym 'true_stackptr))
-       (format "~a\n~a\n~a\n\n~a"
-               (format "~a%~s = alloca %struct.SinObj*, align 8"
-                       (ind indent-level) stackptr)
-               (format "~a%~s = call %struct.SinObj* @const_init_true()"
-                       (ind indent-level) x)
-               (format "~astore volatile %struct.SinObj* %~s, %struct.SinObj** %~s, align 8"
-                       (ind indent-level) x stackptr)
-               (to-llvm e globals indent-level))]
-      [`(let ([,x '#f]) ,e)
-       (define stackptr (gensym 'false_stackptr))
-       (format "~a\n~a\n~a\n\n~a"
-               (format "~a%~s = alloca %struct.SinObj*, align 8"
-                       (ind indent-level) stackptr)
-               (format "~a%~s = call %struct.SinObj* @const_init_false()"
-                       (ind indent-level) x)
-               (format "~astore volatile %struct.SinObj* %~s, %struct.SinObj** %~s, align 8"
-                       (ind indent-level) x stackptr)
-               (to-llvm e globals indent-level))]
-      [`(let ([,x '()]) ,e)
-       (define stackptr (gensym 'null_stackptr))
-       (format "~a\n~a\n~a\n\n~a"
-               (format "~a%~s = alloca %struct.SinObj*, align 8"
-                       (ind indent-level) stackptr)
-               (format "~a%~s = call %struct.SinObj* @const_init_null()"
-                       (ind indent-level) x)
-               (format "~astore volatile %struct.SinObj* %~s, %struct.SinObj** %~s, align 8"
-                       (ind indent-level) x stackptr)
-               (to-llvm e globals indent-level))]
-      [`(let ([,x ',(? integer? n)]) ,e)
-       (define stackptr (gensym 'int_stackptr))
-       (format "~a\n~a\n~a\n\n~a"
-               (format "~a%~s = alloca %struct.SinObj*, align 8"
-                       (ind indent-level) stackptr)
-               (format "~a%~s = call %struct.SinObj* @const_init_int(i64 ~a)"
-                       (ind indent-level) x n)
-               (format "~astore volatile %struct.SinObj* %~s, %struct.SinObj** %~s, align 8"
-                       (ind indent-level) x stackptr)
-               (to-llvm e globals indent-level))]
-      [`(let ([,x ',(? symbol? dat)]) ,e)
-       (define encoded (c-encode (symbol->string dat)))
-       (define val (hash-ref globals encoded))
-       (define stackregname (gensym 'stackreg))
-       (define rawval (gensym 'rawsymstr))
-       (define stackptr (gensym 'symbol_stackptr))
-       (if (hash-has-key? globals encoded)
-           (format "~a\n~a\n~a\n~a\n~a\n~a\n\n~a"
-                   (format "~a%~s = alloca %struct.SinObj*, align 8"
-                           (ind indent-level) stackptr)
-                   (format "~a%~s = alloca i8*, align 8" (ind indent-level) stackregname)
-                   (format (string-append "~astore i8* getelementptr inbounds ([~a x i8], [~a x i8]*"
-                                          " @~a, i32 0, i32 0), i8** %~s, align 8")
-                           (ind indent-level) (enc-len encoded) (enc-len encoded) val stackregname)
-                   (format "~a%~s = load i8*, i8** %~s, align 8"
-                           (ind indent-level) rawval stackregname)
-                   (format "~a%~s = call %struct.SinObj* @const_init_symbol(i8* %~s)"
-                           (ind indent-level) x rawval)
-                   (format "~astore %struct.SinObj* %~s, %struct.SinObj** %~s, align 8"
-                           (ind indent-level) x stackptr)
-                   (to-llvm e globals indent-level))
-           (begin
-             (displayln `("DONT KNOW HOW TO LLVM-ENCODE:: " ,dat))
-            "BAD-LLVM-IR-SORRY"))]
-      [`(let ([,x ',(? string? dat)]) ,e)
-       (define encoded (c-encode dat))
-       (define val (hash-ref globals encoded))
-       (define stackregname (gensym 'stackreg))
-       (define rawval (gensym 'rawstrstr))
-       (define stackptr (gensym 'string_stackptr))
-       (if (hash-has-key? globals encoded)
-           (format "~a\n~a\n~a\n~a\n~a\n~a\n\n~a"
-                   (format "~a%~s = alloca %struct.SinObj*, align 8"
-                           (ind indent-level) stackptr)
-                   (format "~a%~s = alloca i8*, align 8" (ind indent-level) stackregname)
-                   (format (string-append "~astore i8* getelementptr inbounds ([~a x i8], [~a x i8]*"
-                                          " @~a, i32 0, i32 0), i8** %~s, align 8")
-                           (ind indent-level) (enc-len encoded) (enc-len encoded) val stackregname)
-                   (format "~a%~s = load i8*, i8** %~s, align 8"
-                           (ind indent-level) rawval stackregname)
-                   (format "~a%~s = call %struct.SinObj* @const_init_string(i8* %~s)"
-                           (ind indent-level) x rawval)
-                   (format "~astore %struct.SinObj* %~s, %struct.SinObj** %~s, align 8"
-                           (ind indent-level) x stackptr)
-                   (to-llvm e globals indent-level))
-           (begin
-             (displayln `("DONT KNOW HOW TO LLVM-ENCODE:: " dat))
-             "BAD-LLVM-IR-SORRY"))]
-      ;; TESTME
-      [`(let ([,x (env-ref ,env ,nat)]) ,e)
-       (define stackptr (gensym 'env_ref_stackptr))
-       (format "~a\n~a\n~a\n~a"
-               (format "~a%~s = alloca %struct.SinObj*, align 8"
-                       (ind indent-level) stackptr)
-               (format "~a%~s = call %struct.SinObj* @closure_env_get(%struct.SinObj* %~s, i64 ~s)"
-                       (ind indent-level) x env nat)
-               (format "~astore %struct.SinObj* %~s, %struct.SinObj** %~s, align 8"
-                       (ind indent-level) x stackptr)
-               (to-llvm e globals indent-level))]
-      ;; TESTME
-      [`(let ([,x (make-closure ,fptrname ,freevars ...)]) ,e)
-       (define (place-freevars freevars)
-         (define (layout freevars pos)
-           (match freevars
-             [(? empty?) ""]
-             [`(,head)
-              ; dont mind me, just here so less extraneous whitespace is added.
-              (format (string-append "~acall void @closure_place_freevar(%struct.SinObj*"
-                                     " %~s, %struct.SinObj* %~s, i64 ~s)")
-                      (ind indent-level) x head pos)]
-             [`(,head . ,tail)
-              (format "~a\n~a"
-                      ; place each free variable in order in the closure.
-                      (format (string-append "~acall void @closure_place_freevar(%struct.SinObj*"
-                                             " %~s, %struct.SinObj* %~s, i64 ~s)")
-                              (ind indent-level) x head pos)
-                      (layout tail (add1 pos)))]))
-         (if (empty? freevars)
-             ""
-             (string-append "\n" (layout freevars 0))))
-       (define stackptr (gensym 'make_closure_stackptr))
-       (define fintname (gensym 'fintname))
-       ; ~a~a becuase place-freevars places its own \n (in 0 freevars case, adds extraneous \n)
-       (format "~a\n~a\n~a~a\n~a\n\n~a"
-               ; allocate space on stack for pointer (so GC doesnt collect it)
-               (format "~a%~s = alloca %struct.SinObj*, align 8" (ind indent-level) stackptr)
-               ; Convert function pointer to integer for storage purposes
-               (format "~a%~s = ptrtoint void(%struct.SinObj*, %struct.SinObj*)* @proc_~s to i64"
-                       (ind indent-level) fintname fptrname)
-               ; allocate a closure object,
-               ; The first part of a closure is a int that can be
-               ; casted to fptr: SinObj*(SinObj*,SinObj*)*
-               ; The second part is a vector, storing each free variable value.
-               ; The API is found in header.cpp, closure_* family of functions.
-               (format "~a%~s = call %struct.SinObj* @closure_alloc(i64 ~s, i64 %~s)"
-                       (ind indent-level) x (length freevars) fintname)
-               (place-freevars freevars)
-               (format "~astore %struct.SinObj* %~s, %struct.SinObj** %~s, align 8"
-                       (ind indent-level) x stackptr)
-               (to-llvm e globals indent-level))]
-      ;; TESTME
-      [`(clo-app ,cloobj ,arglist)
-       (define clointname (gensym 'cloint))
-       (define clofnobj (gensym 'clofn))
-       (format "~a\n~a\n~a\n~a"
-               (format "~a%~s = call i64 @closure_get_fn_part(%struct.SinObj* %~s)"
-                       (ind indent-level) clointname cloobj)
-               (format "~a%~s = inttoptr i64 %~s to void (%struct.SinObj*, %struct.SinObj*)*"
-                       (ind indent-level) clofnobj clointname)
-               (format "~amusttail call fastcc void %~s(%struct.SinObj* %~s, %struct.SinObj* %~s)"
-                       (ind indent-level) clofnobj cloobj arglist)
-               ; can this be an 'unreachable' instead?
-               (format "~aret void" (ind indent-level)))]
-      [`(if ,grd ,et ,ef)
-       (define cmpr (gensym 'cmp))
-       (define thenblock (gensym 'thenblock))
-       (define elseblock (gensym 'elseblock))
-       (define intermediate-guard-val (gensym 'bool-value))
-       (format "\n~a\n~a\n~a\n~a\n~a"
-               (format "~a%~s = call i64 @is_truthy_value(%struct.SinObj* %~s)"
-                       (ind indent-level) intermediate-guard-val grd)
-               (format "~a%~s = icmp eq i64 %~s, 1"
-                       (ind indent-level) cmpr intermediate-guard-val)
-               (format "~abr i1 %~s, label %~s, label %~s"
-                       (ind indent-level) cmpr thenblock elseblock)
-               (format "~a~s:\n~a" (ind indent-level) thenblock
-                       (to-llvm et globals (add1 indent-level)))
-               (format "~a~s:\n~a" (ind indent-level) elseblock
-                       (to-llvm ef globals (add1 indent-level))))]))
-  (define (layout-procs procs globals)
-    (map (lambda (proc) (to-llvm (normalize-names proc) globals)) procs))
-   ;; TODO: indentation changes wont affect this
-  (define (setup-main) (string-append "define i32 @main() {\n  call void @start_program()\n"
-                                      "  call fastcc void @proc_main()\n  ret i32 0\n}\n"))
-  (define globals (get-globals procs))
-  (string-append (layout-globals globals) "\n"
-                 (setup-main) "\n"
-                 (string-join (identity #;reverse (layout-procs procs globals)) "\n")))
-
-(define (layout-globals g-hash)
-  (define (layout gs)
-    (match gs
-      [(? empty?) "; end string & symbol globals\n"]
-      [`((,k . ,v) . ,tail)
-       (format "~a\n~a"
-               (format "@~a = private unnamed_addr constant [~a x i8] c\"~a\", align 8"
-                       v (enc-len k) k)
-               (layout tail))]))
-  (layout (hash->list g-hash)))
-
-(define (get-globals procs)
-  (define (layout unsorted hs)
-    (match unsorted
-      [(? empty?) hs]
-      [`(,head . ,tail)
-       (define h (layout tail hs)) ; recurse to base before we start building list.
-       (match head
-         [(? string? str) (hash-set h (c-encode str) (gensym '.str.global))]
-         [(? symbol? sym) (hash-set h (c-encode sym) (gensym '.sym.global))]
-         [else (displayln (format "DONT KNOW HOW TO ENCODE:: " head))])]))
-  (define unsorted-globals
-    (foldr set-union (set) (filter (lambda (s) (not (set-empty? s))) (map get-symbols procs))))
-  (layout (set->list unsorted-globals) (hash)))
-
-(define (get-symbols proc)
-  (define (get proc st)
-    (match proc
-      [`(proc (,fname ,args ...) ,ebody)
-       (get ebody st)]
-      [`(let ([,x (apply-prim ,op ,args)]) ,ebody)
-       (get ebody st)]
-      [`(let ([,x (prim ,op ,args ...)]) ,ebody)
-       (get ebody st)]
-      [`(let ([,x (make-closure ,fname ,args ...)]) ,ebody)
-       (get ebody st)]
-      [`(let ([,x (env-ref ,env ,(? natural? nat))]) ,ebody)
-       (get ebody st)]
-      [`(let ([,x '#t]) ,ebody)
-       (get ebody st)]
-      [`(let ([,x '#f]) ,ebody)
-       (get ebody st)]
-      [`(let ([,x ',(? integer? n)]) ,ebody)
-       (get ebody st)]
-      [`(let ([,x '()]) ,ebody)
-       (get ebody st)]
-      ;; useful cases
-      [`(let ([,x ',(? symbol? dat)]) ,ebody)
-       (get ebody (set-add st dat))]
-      [`(let ([,x ',(? string? dat)]) ,ebody)
-       (get ebody (set-add st dat))]
-      [`(let ([,x ',dat]) ,ebody)
-       (displayln (format "IDK HOW TO CONVERT THIS:: ~a" dat))
-       (get ebody st)]
-      [`(clo-app ,fname ,args ...)
-       st] ;; base case
-      [`(if ,xcond ,et ,ef)
-       (set-union (get et st) (get ef st))]))
-  (get proc (set)))
-
-
-;; FIXME: Bug when symbols have same contents as a string.
-;;  Fix is to have separate global lists for each global type.
+      ; let lambda, which will create a new proc.
+      [`(let ([,(? symbol? var) (lambda (,(? symbol? vararg)) ,lambody)]) ,letbody)
+       (match-define `(,let-conv ,let-frees ,let-procs) (bottom-up-convert letbody))
+       (match-define `(,lam-conv ,lam-frees ,lam-procs) (bottom-up-convert lambody))
+       ; convert to list, which is ordered, becuase we need an order in this from now on.
+       (define clo-env-vars-set (set-remove lam-frees vararg))
+       (define clo-env-vars (set->list clo-env-vars-set))
+       (define clo-name (gensym 'clo))
+       (define env-name (gensym 'env))
+       (define (layout-clo-env todo count)
+         (match todo
+           ['() lam-conv]
+           [`(,h ,t ...) `(let ([,h (env-ref ,env-name ,count)]) ,(layout-clo-env t (add1 count)))]))
+       ; clo-env pos-0 is the name of the clo (at least in proc-eval in utils
+       ; TODO: make sure its consistent with the generated llvm
+       (define new-proc `(proc (,clo-name ,env-name ,vararg) ,(layout-clo-env clo-env-vars 1)))
+       `((let ([,var (make-closure ,clo-name ,@clo-env-vars)]) ,let-conv)
+         ,(set-remove (set-union clo-env-vars-set let-frees) var)
+         (,new-proc ,@let-procs ,@lam-procs))]
+      ; let apply-prim
+      [`(let ([,(? symbol? var) (apply-prim ,(? symbol? op) ,(? symbol? arg))]) ,letbody)
+       (match-define `(,conv ,frees ,procs) (bottom-up-convert letbody))
+       `((let ([,var (apply-prim ,op ,arg)]) ,conv)
+         ,(set-add (set-remove frees var) arg)
+         ,procs)]
+      ; let prim
+      [`(let ([,(? symbol? var) (prim ,(? symbol? op) ,(? symbol? args) ...)]) ,letbody)
+       (match-define `(,conv ,frees ,procs) (bottom-up-convert letbody))
+       `((let ([,var (prim ,op ,@args)]) ,conv)
+         ,(foldl (λ (x s) (set-add s x)) (set-remove frees var) args)
+         ,procs)]
+      ; let quote
+      [`(let ([,(? symbol? var) ',(? datum? dat)]) ,letbody)
+       (match-define `(,conv ,frees ,procs) (bottom-up-convert letbody))
+       `((let ([,var ',dat]) ,conv)
+         ,(set-remove frees var)
+         ,procs)]
+      ; if expression
+      [`(if ,(? symbol? xc) ,et ,ef)
+       (match-define `(,et-conv ,et-free ,et-procs) (bottom-up-convert et))
+       (match-define `(,ef-conv ,ef-free ,ef-procs) (bottom-up-convert ef))
+       `((if ,xc ,et-conv ,ef-conv)
+         ,(set-union et-free ef-free)
+         ,(append et-procs ef-procs))]
+      ; closure application
+      [`(,(? symbol? f) ,(? symbol? arglist))
+       `((clo-app ,f ,arglist) ,(set f arglist) ,(list))]))
+  (match-define `(,main-body ,free ,procs) (bottom-up-convert no-varargs-cps))
+  (when (not (set-empty? free)) (displayln `(TOPLEVEL-FREE-VARS: ,free)))
+  `((proc (main) ,main-body) ,@procs))

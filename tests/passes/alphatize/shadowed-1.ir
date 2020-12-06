@@ -1,0 +1,4 @@
+
+
+((lambda (x) (x (lambda (x) (x (lambda (x) '7)))))
+ (lambda (x) (x x)))

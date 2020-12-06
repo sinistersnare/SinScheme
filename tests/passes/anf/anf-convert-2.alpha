@@ -1,0 +1,5 @@
+(prim list
+  ((lambda (x) '1) 'a)
+  (let ([x '1]
+        [y '2])
+    (prim list x y x)))

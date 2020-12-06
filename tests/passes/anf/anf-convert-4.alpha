@@ -1,0 +1,7 @@
+(call/cc (lambda (k)
+           (k
+            (prim +
+                  (apply-prim * (prim list '3 '4))
+                  (prim -
+                        (prim + '2 '1)
+                        (prim * '5 '6))))))

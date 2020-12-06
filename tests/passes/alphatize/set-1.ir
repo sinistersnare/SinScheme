@@ -1,0 +1,6 @@
+((lambda (x y)
+   (let ([r0 (set! x '10)]
+         [r1 (set! y (lambda (x) (prim + '2 x)))])
+     (y x)))
+ 'a
+ 'b)

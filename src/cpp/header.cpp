@@ -8,6 +8,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <cstdarg>
 
 extern "C" {
 
@@ -77,7 +78,7 @@ SinObj* closure_alloc(const u64 amt_freevars, u64 cloval) {
     SinObj* vec = prim_make_45vector(const_init_int(static_cast<s64>(amt_freevars)), const_init_int(0));
     SinObj clo_part;
     clo_part.type = Other; // TODO, layout of closures?
-    // another reinterpret (the first being in proc->llvm) to make sure this doesnt get swept.
+    // another reinterpret (the first being in llvm-convert) to make sure this doesnt get swept.
     clo_part.valueptr = reinterpret_cast<u64*>(cloval);
     clo_obj[0] = clo_part;
     clo_obj[1] = *vec;
@@ -889,6 +890,7 @@ SinObj* applyprim_hash(SinObj* cur) { // apply hash
     }
     return map_to_sin(map);
 }
+
 
 GEN_EXPECT1ARGLIST(applyprim_hash_45keys, prim_hash_45keys)
 SinObj* prim_hash_45keys(SinObj* hash) { // hash-keys

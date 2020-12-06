@@ -1,0 +1,1 @@
+(apply-prim + (prim list (prim + '1 '2) (prim * '3 '4)))

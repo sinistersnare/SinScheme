@@ -1,0 +1,6 @@
+((lambda (x y z)
+   (let ([r (if (set! x '1)
+                (set! y '2)
+                (set! z '3))])
+     y))
+ 'a 'b 'c)

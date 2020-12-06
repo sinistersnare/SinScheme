@@ -1,0 +1,8 @@
+
+
+
+(let ([w '4])
+  (prim * w
+          ((lambda (x) (let ([y (set! x (lambda (x) '3))]) (x y)))
+           (lambda (x) '2))))
+

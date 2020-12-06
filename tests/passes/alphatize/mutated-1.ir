@@ -1,0 +1,7 @@
+
+
+(let ([x '0])
+  (let ([y (set! x '1)])
+    (let ([z (set! y '2)])
+      (prim + (let ([x (set! x (prim + x y (if z '7 z)))]) '3)
+              (let ([a (set! x (prim * x x x))]) x)))))
