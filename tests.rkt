@@ -9,7 +9,7 @@
                   test-anf-convert ; anf testing
                   test-cps-convert ; cps testing
                   test-closure-convert ; closure-convert testing
-                  eval-proc eval-llvm ; llvm testing
+                  eval-proc ; llvm testing
                   read-begin eval-top-level))
 
 (require (only-in "src/racket/desugar.rkt" desugar))
@@ -22,7 +22,7 @@
 (require (only-in "src/racket/closure-convert.rkt" closure-convert))
 (require (only-in "src/racket/llvm-convert.rkt" llvm-convert))
 
-(require (only-in "compiler.rkt" gen-header-name gen-exe-name scm->exe))
+(require (only-in "compiler.rkt" gen-build-file scm->exe llvm->exe))
 
 ; compiles and interprets the code and calls the callback
 ; giving it the compiled and interpreted results as strings (in that order).
@@ -35,18 +35,29 @@
   ; get value when we compile and execute the input
   (define compiler-input (open-input-string code-str))
   (define generated-name (gensym 'generated))
-  (define compiled-output (compile-and-run compiler-input generated-name))
+  (define header-name (gen-build-file generated-name ".ll"))
+  (define exe-name (gen-build-file generated-name ".exe"))
+  ; compile program, creating exe-name
+  (scm->exe (open-input-string code-str) exe-name)
+  ; return output of program after running it.
+  (define compiled-output
+    (string-normalize-spaces (with-output-to-string (λ () (system (format "./~a" exe-name))))))
   (fin compiled-output interpreted-string))
 
-; takes the output of llvm-convert, appends it to the header,
-; compiles it with clang++, runs it, and returns the output as a string.
-(define (compile-and-run code base-name)
-  (define header-name (gen-header-name base-name))
-  (define exe-name (gen-exe-name base-name))
-  ; compile program, creating exe-name
-  (scm->exe (open-input-string code) exe-name)
-  ; return output of program after running it.
-  (string-normalize-spaces (with-output-to-string (λ () (system (format "./~a" exe-name))))))
+(define (test-llvm-convert llvm-convert prog)
+  (define interpreted-val (~a (eval-proc prog)))
+  (define llvm (llvm-convert prog))
+  (define exe-name (gen-build-file (gensym 'testllvm) ".exe"))
+  (llvm->exe llvm exe-name)
+  ; if this function gets any more complicated we should refactor and share code with the
+  ; compile-and-run function.
+  (define compiled-val
+    (string-normalize-spaces (with-output-to-string (λ () (system (format "./~a" exe-name))))))
+  (if (equal? interpreted-val compiled-val)
+      #t
+      (begin (displayln (format "llvm:'~a'\ninterpreted:'~a'\n" compiled-val interpreted-val)) #f)))
+
+; Single test creation.
 
 (define (new-failing-test test-file-path)
   (lambda ()
@@ -71,76 +82,34 @@
 
 ; TODO: move testing functions from utils.rkt to here?
 ; Or maybe move the testing functionality into the tests/ folder, and this just be the interface?
-
-; Single test creation.
-
-(define (new-desugar-test test-file-path)
+(define (new-pass-test test-file-path f)
   (lambda ()
     (define test-contents (read (open-input-string (file->string test-file-path))))
-    (with-handlers ([exn:fail? #f])
-      (test-desugar desugar test-contents))))
+    (with-handlers ([exn:fail? (λ (ex) (displayln ex) #f)])
+      (f test-contents))))
 
-(define (new-alphatize-test test-file-path)
-  (lambda ()
-    (define test-contents (read (open-input-string (file->string test-file-path))))
-    (with-handlers ([exn:fail? #f])
-      (test-alphatize assignment-convert alphatize test-contents))))
-
-(define (new-anf-test test-file-path)
-  (lambda ()
-    (define test-contents (read (open-input-string (file->string test-file-path))))
-    (with-handlers ([exn:fail? #f])
-      (test-anf-convert anf-convert test-contents))))
-
-(define (new-cps-test test-file-path)
-  (lambda ()
-    (define test-contents (read (open-input-string (file->string test-file-path))))
-    (with-handlers ([exn:fail? #f])
-      (test-cps-convert cps-convert test-contents))))
-
-(define (new-clo-test test-file-path)
-  (lambda ()
-    (define test-contents (read (open-input-string (file->string test-file-path))))
-    (with-handlers ([exn:fail? #f])
-      (test-closure-convert closure-convert test-contents))))
-
-(define (test-llvm-convert llvm-convert prog)
-  (define interpreted-val (eval-proc prog))
-  (displayln `(VAL: ,interpreted-val))
-  (define llvm (llvm-convert prog))
-  (define compiled-val (compile-and-run llvm (gensym 'testllvm)))
-  (if (equal? interpreted-val compiled-val)
-      #t
-      (begin
-        (display (format (string-append "Test-llvm-convert: two different values"
-                                        " (~a and ~a) before and after closure conversion.\n")
-                         interpreted-val compiled-val))
-        #f)))
-
-(define (new-llvm-test test-file-path)
-  (lambda ()
-    (define test-contents (read (open-input-string (file->string test-file-path))))
-    (with-handlers ([exn:fail? (λ (ex) ((displayln ex) #f))])
-      (test-llvm-convert llvm-convert test-contents))))
+(define (new-desugar-test p) (new-pass-test p (λ (c) (test-desugar desugar c))))
+(define (new-alphatize-test p)
+  (new-pass-test p (λ (c) (test-alphatize assignment-convert alphatize c))))
+(define (new-anf-test p) (new-pass-test p (λ (c) (test-anf-convert anf-convert c))))
+(define (new-cps-test p) (new-pass-test p (λ (c) (test-cps-convert cps-convert c))))
+(define (new-clo-test p) (new-pass-test p (λ (c) (test-closure-convert closure-convert c))))
+(define (new-llvm-test p) (new-pass-test p (λ (c) (test-llvm-convert llvm-convert c))))
 
 ; test suite creation
 
 (define (get-tests-at testsloc filetype)
   (map (λ (p) (string->path (string-append testsloc (path->string p))))
-       (filter
-        (λ (p) (equal? (last (string-split (path->string p) "."))
-                       filetype))
-        (directory-list testsloc))))
+       (filter (λ (p) (equal? (last (string-split (path->string p) ".")) filetype))
+               (directory-list testsloc))))
 
+; makes a suite of tests that can each be executed.
+; prepends each test name with the prefix.
 (define (make-suite prefix make-test test-list)
   ; takes a path like /a/b/c/d.scm and returns 'd'
   (define (extract-filename p)
-    (last (string-split
-           (string-join (drop-right (string-split (path->string p) ".") 1) ".")
-           "/")))
-  (map (λ (p) (list (string-append prefix (extract-filename p))
-                    (make-test p)))
-       test-list))
+    (last (string-split (string-join (drop-right (string-split (path->string p) ".") 1) ".") "/")))
+  (map (λ (p) (list (string-append prefix (extract-filename p)) (make-test p))) test-list))
 
 (define passing-tests (make-suite "passing-" new-passing-test
                                   (get-tests-at "tests/passing/" "sinscm")))

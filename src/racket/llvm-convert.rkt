@@ -63,8 +63,11 @@
 (define (layout-procs procs globals)
   (define (proc-convert proc)
     (match-define `(proc (,fname ,env ,arglist) ,procbody) (normalize-names proc))
-    (define header (format "define tailcc void @proc_~a(%struct.SinObj* %~a, %struct.SinObj* %~a) {"
-                           fname env arglist))
+    (define header
+      ; dso_local says that this function is defined locally... obviously though? idk
+      ; all procs are tailcc, which is the calling conv we use in SinScm
+      (format "define dso_local tailcc void @proc_~a(%struct.SinObj* %~a, %struct.SinObj* %~a) {"
+              fname env arglist))
     (append
      (list header)
      (body-convert procbody globals 1)
@@ -183,14 +186,11 @@
     ; Closure Application
     [`(clo-app ,clo-obj ,args ...)
      (when (> (length args) 1) (error `(got-too-many-args-in-clo-app ,(length args))))
-     (define clo-fn-int (gensym 'clofnint))
      (define clo-fn (gensym 'clofn))
      (ilist
       indent-level
-      (format "%~a = call i64 @closure_get_fn_part(%struct.SinObj* %~a)"
-              clo-fn-int clo-obj)
-      (format "%~a = inttoptr i64 %~a to void (%struct.SinObj*, ~a)*"
-              clo-fn clo-fn-int (string-join (map (λ (_) " %struct.SinObj*") args) ", "))
+      (format "%~a = call void ~a @closure_get_fn_part(%struct.SinObj* %~a)"
+              clo-fn "(%struct.SinObj*, %struct.SinObj*)*" clo-obj)
       (format "musttail call tailcc void %~a(%struct.SinObj* %~a, ~a)"
               clo-fn clo-obj (string-join (map (λ (a) (format "%struct.SinObj* %~a" a)) args) ", "))
       "ret void")]

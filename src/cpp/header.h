@@ -92,8 +92,6 @@ typedef enum {  Void=0, Null, Bool,
                 Hash, Set, Other} SinType;
 
 
-
-// Maybe std::variant instead of 2 value types would be good here?
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wpadded"
 // ignore padded because its just sayng that its gonna pad, and thats OK.
@@ -104,15 +102,18 @@ typedef struct SinObj {
 #pragma clang diagnostic pop
 
 
+// used in closure_get_fn_part
+typedef void (*proc_ptr)(SinObj*,SinObj*);
+
 void start_program();
 SinObj* alloc(const u64);
 SinObj* alloc_atomic(const u64);
 SinObj* make_predicate(bool);
 
-SinObj* closure_alloc(const u64 amt_freevars, u64 cloval);
-u64 closure_get_fn_part(SinObj*);
-SinObj* closure_env_get(SinObj* clo, u64 pos);
-void closure_place_freevar(SinObj* clo, SinObj* freevar, u64 positionint);
+SinObj* closure_alloc(const s64 amt_freevars, u64 cloval);
+void closure_place_freevar(SinObj* clo, SinObj* freevar, s64 pos);
+proc_ptr closure_get_fn_part(SinObj*);
+SinObj* closure_env_get(SinObj* clo, s64 pos);
 
 SinObj* const_init_int(s64);
 SinObj* const_init_void();
@@ -138,7 +139,9 @@ int eq_helper(SinObj*, SinObj*);
 int cons_eq_helper(SinObj* a, SinObj* b);
 int vec_eq_helper(SinObj* a, SinObj* b);
 
+void bounds_check(SinObj*, s64);
 u64 _get_vector_length(SinObj*);
+SinObj* hash_ref_impl(SinObj*, SinObj*, SinObj*);
 const char* get_type_name(SinType);
 void _get_both(SinObj*, SinObj*, SinObj*);
 u64 is_truthy_value(SinObj*);

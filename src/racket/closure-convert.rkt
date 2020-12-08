@@ -51,7 +51,7 @@
       ; we accumulate done backwards, so reverse it at the end.
       ['() (fin (reverse done))]
       [`(,hae ,tae ...)
-       (define aearg (gensym '%%%ae))
+       (define aearg (gensym 'ae))
        (if (symbol? hae)
            (expand-aes fin tae (cons hae done))
            (remove-ae-forms `(let ([,aearg ,hae]) ,(expand-aes fin tae (cons aearg done)))))]))
@@ -98,7 +98,7 @@
      `(let ([,x (prim ,op ,@aes)]) ,(unify-lambdas letbody))]
     [`(let ([,x (lambda (,xs ...) ,lambody)]) ,letbody)
      (define (listify-lam todo restarg)
-       (define nextrestarg (gensym '%%%arglist))
+       (define nextrestarg (gensym 'arglist))
        (match todo
          ['() (unify-lambdas lambody)]
          ; special case so we dont have a useless binding at the end
@@ -108,7 +108,7 @@
           `(let ([,h (prim car ,restarg)])
              (let ([,nextrestarg (prim cdr ,restarg)])
                ,(listify-lam t nextrestarg)))]))
-     (define restarg (gensym '%%%arglist))
+     (define restarg (gensym 'arglist))
      `(let ([,x (lambda (,restarg) ,(listify-lam xs restarg))]) ,(unify-lambdas letbody))]
     [`(let ([,x (lambda ,xvararg ,lambody)]) ,letbody)
      `(let ([,x (lambda (,xvararg) ,(unify-lambdas lambody))]) ,(unify-lambdas letbody))]
@@ -121,7 +121,7 @@
     [`(,aef ,aes ...)
      ; to create a list in CPS, we need to construct
      ; each cons-cell 1-by-1. All the appending is just
-     ; to make nice arg-names like '%%%argsXXXX-fname-N
+     ; to make nice arg-names like 'argsXXXX-fname-N
      ; so we can more easily see how far into the args list we are.
      (define (layout-untagged fname args argsname count)
        (match args
@@ -132,7 +132,7 @@
              ,(layout-untagged aef t argsname (add1 count)))]))
      ; This is the base-name of the arg list, we append the arg number to it.
      ; use $ as a separator to avoid name mangling when converting to LLVM IR.
-     (define argsname (symbol-append (gensym '%%%args) '$ aef '$))
+     (define argsname (symbol-append (gensym 'args) '$ aef '$))
      ; we start with null, and then as we consume args, we add to the list.
      `(let ([,(symbol-append argsname (number->symbol 0)) '()])
         ,(layout-untagged aef (reverse aes) argsname 0))]))
@@ -163,9 +163,7 @@
          (match todo
            ['() lam-conv]
            [`(,h ,t ...) `(let ([,h (env-ref ,env-name ,count)]) ,(layout-clo-env t (add1 count)))]))
-       ; clo-env pos-0 is the name of the clo (at least in proc-eval in utils
-       ; TODO: make sure its consistent with the generated llvm
-       (define new-proc `(proc (,clo-name ,env-name ,vararg) ,(layout-clo-env clo-env-vars 1)))
+       (define new-proc `(proc (,clo-name ,env-name ,vararg) ,(layout-clo-env clo-env-vars 0)))
        `((let ([,var (make-closure ,clo-name ,@clo-env-vars)]) ,let-conv)
          ,(set-remove (set-union clo-env-vars-set let-frees) var)
          (,new-proc ,@let-procs ,@lam-procs))]

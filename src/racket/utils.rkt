@@ -15,7 +15,6 @@
          eval-scheme
          eval-ir
          eval-proc
-         eval-llvm
          simplify-ir
          scheme-exp?
          ir-exp?
@@ -253,7 +252,8 @@
     [`(,(? (rec/with env)) ,(? (rec/with env)) ...) #t]
     [else (pretty-print `(bad-ir ,e ,env)) #f]))
 
-
+; Applies some small optimizations on the IR-language (post-desugar)
+; makes some prims vararg so they can be compiled more easily
 (define (simplify-ir ir-e)
   (define (T e)
     (match e
@@ -269,8 +269,7 @@
        `(set! ,x ,(T e0))]
       [`(call/cc ,e0)
        `(call/cc ,(T e0))]
-      [(? symbol? x)
-       x]
+      [(? symbol? x) x]
       [`(quote ,(? symbol? x))
        `(quote ,x)]
       [`(quote #(,ds ...))
@@ -291,6 +290,7 @@
        (T e0)]
       [`(prim * ,e0 ,e1 ,e2 ,es ...)
        (T `(prim * ,e0 (prim * ,e1 ,e2 ,@es)))]
+      [`(prim - ,e0) (T `(prim - '0 ,e0))]
       [`(prim - ,e0 ,es ...)
        #:when (> (length es) 1)
        (T `(prim - (prim - ,e0 ,@(drop-right es 1)) ,(last es)))]
@@ -301,21 +301,21 @@
        `((lambda lst lst) ,@(map T es))]
       [`(apply-prim list ,e0)
        (T e0)]
+      ; eta-expand vararg prims.
       [`(prim vector ,es ...)
        (T `((lambda el (apply-prim vector el)) ,@es))]
-      ; hash is a vararg function, so it needs to be turned into an apply-prim...
-      ; (this change is based off the vector change)
-      ; Maybe there should be a list of vararg prims so the transformation is a bit
-      ; more general and less prone to breaking on a new prim?
       [`(prim hash ,es ...)
        (T `((lambda el (apply-prim hash el)) ,@es))]
+      [`(prim hash-ref ,es ...) ; 'vararg' in the sense that there is an optional argument.
+       (T `((lambda el (apply-prim hash-ref el)) ,@es))]
       [`(prim foldl ,e0 ,e1 ,e2)
        `(%foldl1 ,@(map T (list e0 e1 e2)))]
       [`(prim foldr ,e0 ,e1 ,e2)
        `(%foldr1 ,@(map T (list e0 e1 e2)))]
       [`(prim map ,e0 ,e1)
        `(%map1 ,@(map T (list e0 e1)))]
-
+      ; this function adds some primitives to the env so they need not be implemented by the runtime.
+      ; so remove them from here if we see them.
       [`(prim ,op ,es ...)
        #:when (member op '(drop memv / > >= list? drop-right length append last
                                 map foldl foldr first second third fourth))
@@ -618,36 +618,6 @@
     [`((proc (,(? symbol? xs) ...) ,(? c-exp? e)) ...) #t]
     [else (pretty-print `(bad-proc ,e)) #f]))
 
-(define recent-header #f)
-(define (eval-llvm llvm-str)
-  ; freshly compile the header / runtime library if not already
-  (when (not recent-header)
-    (set! recent-header #t)
-    ;(system (string-append clang++-path "
-    ;                       header.cpp " " -I " gc-include-path " -S -emit-llvm -o header.ll"))
-    (system (string-append clang++-path " src/cpp/header.cpp " " -S -emit-llvm -o build/header.ll")))
-  (define header-str (read-string 299999 (open-input-file "build/header.ll" #:mode 'text)))
-  (define llvm (string-append header-str "\n\n;;;;;;\n\n" llvm-str))
-  (display llvm (open-output-file "combined.ll" #:exists 'replace))
-  ;(system (string-append clang++-path "
-  ;                       combined.ll " libgc-path " -I " gc-include-path " -lpthread -o bin"))
-  (system (string-append clang++-path " combined.ll " " -o bin"))
-  (match-define `(,out-port ,in-port ,id ,err-port ,callback) (process "./bin"))
-  (define starttime (current-milliseconds))
-  (let loop ()
-    (define time (current-milliseconds))
-    (define status (callback 'status))
-    (if (> time (+ starttime 12000))
-        (begin (pretty-print '(eval-llvm "binary execution timed out")) (void))
-        (if (eq? status 'done-ok)
-            ; use a read to turn the printed value back into a racket value
-            (let ([v (eval (read out-port) (make-base-namespace))])
-              (callback 'kill)
-              v)
-            (if (eq? status 'done-error)
-                (begin (pretty-print '(eval-llvm "bad status code")) (void))
-                (loop))))))
-
 
 (define (test-closure-convert closure-convert prog)
   (define val (eval-ir prog))
@@ -709,7 +679,9 @@
                              (and (vector? p)
                                   (equal? '%clo (vector-ref p (- (vector-length p) 1)))))
                            (define (make-closure . args) (list->vector (append args '(%clo))))
-                           (define env-ref vector-ref)
+                           ; interpreted closures are laid out as 1 vector and not a complex object.
+                           ; so we need to go 1 further here than in the compiled code.
+                           (define (env-ref clo n) (vector-ref clo (+ n 1)))
                            (define (clo-app f . vs) (apply (vector-ref f 0) (cons f vs)))
                            ,@(map (match-lambda [`(proc (,xs ...) ,bdy) `(define ,xs ,bdy)]) procs)
                            (main '() '())))))))))

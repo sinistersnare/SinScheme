@@ -2,15 +2,8 @@
 
 
 (provide
- libgc-include-dir
- libgc-obj-path
- clang++-path
- compiler-flags
- scm->exe
- llvm->exe
- scm->llvm
- gen-header-name
- gen-exe-name)
+ scm->exe llvm->exe scm->llvm
+ gen-build-file)
 
 (require (only-in "src/racket/top-level.rkt" top-level))
 (require (only-in "src/racket/desugar.rkt" desugar))
@@ -30,10 +23,14 @@
 ; (and changing the requires and provides in tests.rkt sinscm.rkt and this file)
 ; but when I try to run those programs, they hang for some reason.
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; HERE ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ;; SET THESE TO YOUR LIBGC LOCATIONS PLZ
-; windows not supported! It can be, I just dont know where the paths would be.
+
+; Windows not 'not' supported! It can be, I just dont know where the paths would be.
+; LibGC works on windows alledgedly, so if you get this working, lemme know!
 
 (define macos-base (build-path "/" "usr" "local" "Cellar" "bdw-gc" "8.0.4"))
 (define unix-base (build-path "/" "usr" "local"))
@@ -42,16 +39,19 @@
   (match (system-type 'os)
     ['macosx (path->string (build-path macos-base "8.0.4" "include"))]
     ['unix (path->string (build-path unix-base "include"))]
-    ['windows (raise 'windows-not-supported)]
+    ['windows (raise 'windows-not-supported-make-a-PR!)]
     [else (raise 'unknown-os-type)]))
 
 (define libgc-obj-path
   (match (system-type 'os)
     ['macosx (path->string (build-path macos-base "8.0.4" "lib" "libgc.a"))]
     ['unix (path->string (build-path unix-base "lib" "libgc.a"))]
-    ['windows (raise 'windows-not-supported)]
+    ['windows (raise 'windows-not-supported-make-a-PR!)]
     [else (raise `('unsupported-os-type ,else))]))
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; END HERE ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; DONE ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ; fail if we cant find libgc stuff
 (unless (directory-exists? libgc-include-dir) (raise `('cant-find-include ,libgc-include-dir)))
@@ -73,20 +73,16 @@
 
 (define clang++-path "clang++") ; let's hope its in the PATH lol
 
-(define (gen-header-name name)
+(define (gen-build-file name extension)
   (unless (directory-exists? "build") (make-directory "build"))
-  (string-append "build/" (symbol->string name) ".ll"))
-
-(define (gen-exe-name name)
-  (unless (directory-exists? "build") (make-directory "build"))
-  (string-append "build/" (symbol->string name) ".exe"))
+  (string-append "build/" (symbol->string name) extension))
 
 (define compiler-flags
   (string-join '("-std=c++11"
                  ; "-lpthread" ; why am i compiling threads?
                  ; "-O2" ;;; TODO figure out why optimization fails
                  "-g" ;;; TODO figure out why debug fails
-                 ; "-DGC_DEBUG"
+                 "-DGC_DEBUG"
                  "-Wall"
                  "-Weverything"
                  "-Wno-unused-command-line-argument"
@@ -102,11 +98,20 @@
 
 ; gets the runtime-half of the LLVM IR as a string.
 (define (get-runtime-header)
-  (define runtime-header-name (gen-header-name (gensym 'compiled_runtime)))
+  (define runtime-header-name (gen-build-file (gensym 'compiled_runtime) ".ll"))
   (system (format "~a ~a ~a -I~s -S -emit-llvm -o ~a"
                   clang++-path compiler-flags header-location
                   libgc-include-dir runtime-header-name))
   (file->string runtime-header-name))
+
+; compile the given scheme to a full exe named `exe-name`.
+; Takes an input-port that will be `read-begin`d into a scheme symbol,
+; and a string, the name of the resulting executable.
+; Returns void.
+; The input port is NOT closed by this, close it yourself, chump!
+(define (scm->exe scm-port exe-name)
+  (define user-llvm (scm->llvm scm-port))
+  (llvm->exe user-llvm exe-name))
 
 ; compiles the given scheme to the user-half of the LLVM output.
 ; Takes an input-port that will be `read-begin`d into a scheme symbol,
@@ -122,19 +127,10 @@
 ; Returns void.
 (define (llvm->exe user-llvm exe-name)
   (define full-ir (string-append (get-runtime-header) ir-separator user-llvm))
-  (define combined-ir-path (gen-header-name (gensym 'generated_combined)))
+  (define combined-ir-path (gen-build-file (gensym 'generated_combined) ".ll"))
   (define out-combined-file (open-output-file combined-ir-path #:mode 'text #:exists 'replace))
   (display full-ir out-combined-file)
   (system (format "~a ~a ~a ~a ~a ~a"
                   clang++-path compiler-flags combined-ir-path libgc-obj-path "-o" exe-name))
   (close-output-port out-combined-file))
-
-; compile the given scheme to a full exe named `exe-name`.
-; Takes an input-port that will be `read-begin`d into a scheme symbol,
-; and a string, the name of the resulting executable.
-; Returns void.
-; The input port is NOT closed by this, close it yourself, chump!
-(define (scm->exe scm-port exe-name)
-  (define user-llvm (scm->llvm scm-port))
-  (llvm->exe user-llvm exe-name))
 

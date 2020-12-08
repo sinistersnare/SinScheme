@@ -2,9 +2,7 @@
 
 
 (require (only-in "compiler.rkt"
-                  libgc-include-dir libgc-obj-path
-                  clang++-path compiler-flags
-                  scm->exe llvm->exe scm->llvm gen-header-name))
+                  scm->exe llvm->exe scm->llvm))
 
 ; TODO: delete all the generated headers at some point? Maybe after
 ; everything works and no error generated?

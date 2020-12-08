@@ -52,29 +52,23 @@ SinObj* alloc_atomic(const u64 amt) {
 
 ///// Closures
 
-/// Returns a u64, which can be `inttoptr`d/`reinterpret`d
-/// into a (void (SinObj*, SinObj*)) function pointer.
-u64 closure_get_fn_part(SinObj* clo) {
-    SinObj* clo_obj = unwrap_clo(clo, "closure_get_fn_part");
-    // safe becuase right after using closure_get_fn_part
-    // clo-app converts this a pointer and uses it.
-    // so its not a hazard of getting collected or anything.
-    return reinterpret_cast<u64>(clo_obj[0].valueptr);
-}
-
 /// Closure Memory Layout
 /// It is 2 SinObj laid out besides eachother.
 /// The first SinObj (index 0) is an Other type and it has a ptrvalue of the function pointer
 /// The second SinObj (index 1) is the vector that holds the environment (free variables).
-SinObj* closure_alloc(const u64 amt_freevars, u64 cloval) {
+SinObj* closure_alloc(const s64 amt_freevars, u64 fptr) {
     SinObj* clo_obj = alloc(2);
-    SinObj* vec = prim_make_45vector(const_init_int(static_cast<s64>(amt_freevars)), const_init_int(0));
-    SinObj lam_part;
-    // another reinterpret (the first being in llvm-convert) to make sure this doesnt get swept.
-    lam_part.type = Other; // TODO, layout of closures?
-    lam_part.valueptr = reinterpret_cast<u64*>(cloval);
+    SinObj lam_part, env_part;
+
+    // use Other type for the constituents of the Closure
+    // as they are internal to the Closure object itself.
+    lam_part.type = Other;
+    lam_part.valueptr = reinterpret_cast<u64*>(fptr);
+    env_part.type = Other;
+    env_part.valueptr = reinterpret_cast<u64*>(prim_make_45vector(const_init_int(amt_freevars),
+                                                                  const_init_int(0)));
     clo_obj[0] = lam_part;
-    clo_obj[1] = *vec;
+    clo_obj[1] = env_part;
 
     SinObj* ret = alloc(1);
     ret->type = Closure;
@@ -85,66 +79,83 @@ SinObj* closure_alloc(const u64 amt_freevars, u64 cloval) {
 /// When creating a closure, we need to store the function's free variables into the environment.
 /// This takes the closure, the value of the free variable, and the position
 /// of the variable in the environment, and places it into the closure.
-void closure_place_freevar(SinObj* clo, SinObj* freevar, u64 positionint) {
+void closure_place_freevar(SinObj* clo, SinObj* freevar, s64 pos) {
     // unwrap handles asserting
     SinObj* clo_obj = unwrap_clo(clo, "closure_place_freevar");
 
-    SinObj* vec = &clo_obj[1];
-    // TODO: probably want that Len type, or just make all lengths s64.
-    SinObj* pos = const_init_int(static_cast<s64>(positionint));
+    SinObj* vec = reinterpret_cast<SinObj*>(clo_obj[1].valueptr);
+    SinObj* pos_obj = const_init_int(pos);
 
-    prim_vector_45set_33(vec, pos, freevar);
+    prim_vector_45set_33(vec, pos_obj, freevar);
 }
 
-SinObj* closure_env_get(SinObj* clo, u64 pos) {
+
+/// Returns a u64, which can be `inttoptr`d/`reinterpret`d
+/// into a (void (SinObj*, SinObj*)) function pointer.
+proc_ptr closure_get_fn_part(SinObj* clo) {
+    SinObj* clo_obj = unwrap_clo(clo, "closure_get_fn_part");
+    return reinterpret_cast<proc_ptr>(clo_obj[0].valueptr);
+}
+
+SinObj* closure_env_get(SinObj* clo, s64 pos) {
     // unwrap handles asserting
     SinObj* clo_obj = unwrap_clo(clo, "closure_env_get");
-    SinObj* vec = &clo_obj[1];
+    SinObj* vec = reinterpret_cast<SinObj*>(clo_obj[1].valueptr);
     return prim_vector_45ref(vec, const_init_int(static_cast<s64>(pos)));
 }
 
 Map* unwrap_hash(SinObj* hash_obj, const char* fn) {
-    ASSERT_TYPE(*hash_obj, Hash, "unwrap_hash takes a Hash object! Got %d in fn %s", hash_obj->type, fn);
+    ASSERT_TYPE(*hash_obj, Hash, "unwrap_hash takes a Hash object! Got %d in fn %s",
+                hash_obj->type, fn);
     return reinterpret_cast<Map*>(hash_obj->valueptr);
 }
 
 SinObj* unwrap_cons(SinObj* cons_obj, const char* fn) {
-    ASSERT_TYPE(*cons_obj, Cons, "unwrap_cons takes a Cons object! Got %d in fn %s", cons_obj->type, fn);
+    ASSERT_TYPE(*cons_obj, Cons, "unwrap_cons takes a Cons object! Got %d in fn %s",
+                cons_obj->type, fn);
     return reinterpret_cast<SinObj*>(cons_obj->valueptr);
 }
 
 SinObj* unwrap_vector(SinObj* vec_obj, const char* fn) {
-    ASSERT_TYPE(*vec_obj, Vector, "unwrap_vector takes a Vector object! Got %d in fn %s", vec_obj->type, fn);
+    ASSERT_TYPE(*vec_obj, Vector, "unwrap_vector takes a Vector object! Got %d in fn %s",
+                vec_obj->type, fn);
     return reinterpret_cast<SinObj*>(vec_obj->valueptr);
 }
 
 SinObj* unwrap_clo(SinObj* clo_obj, const char* fn) {
-    ASSERT_TYPE(*clo_obj, Closure, "unwrap_clo takes a Closure object! Got %d in fn %s", clo_obj->type, fn);
+    ASSERT_TYPE(*clo_obj, Closure, "unwrap_clo takes a Closure object! Got %d in fn %s",
+                clo_obj->type, fn);
     return reinterpret_cast<SinObj*>(clo_obj->valueptr);
 }
 
 s64 unwrap_int(SinObj* int_obj, const char* fn) {
-    ASSERT_TYPE(*int_obj, Int, "unwrap_int takes an Int object! Got %d in fn %s", int_obj->type, fn);
+    ASSERT_TYPE(*int_obj, Int, "unwrap_int takes an Int object! Got %d in fn %s",
+                int_obj->type, fn);
     return reinterpret_cast<s64>(int_obj->valueptr);
 }
 
 u64 unwrap_bool(SinObj* bool_obj, const char* fn) {
-    ASSERT_TYPE(*bool_obj, Bool, "unwrap_bool takes a Bool object! Got %d in fn %s", bool_obj->type, fn);
+    ASSERT_TYPE(*bool_obj, Bool, "unwrap_bool takes a Bool object! Got %d in fn %s",
+                bool_obj->type, fn);
     return reinterpret_cast<u64>(bool_obj->valueptr);
 }
 
 char* unwrap_str(SinObj* str_obj, const char* fn) {
-    ASSERT_TYPE(*str_obj, Str, "unwrap_str takes a Str object! Got %d in fn %s", str_obj->type, fn);
+    ASSERT_TYPE(*str_obj, Str, "unwrap_str takes a Str object! Got %d in fn %s",
+                str_obj->type, fn);
     return reinterpret_cast<char*>(str_obj->valueptr);
 }
 
 char* unwrap_sym(SinObj* sym_obj, const char* fn) {
-    ASSERT_TYPE(*sym_obj, Sym, "unwrap_sym takes a Sym object! Got %d in fn %s", sym_obj->type, fn);
+    ASSERT_TYPE(*sym_obj, Sym, "unwrap_sym takes a Sym object! Got %d in fn %s",
+                sym_obj->type, fn);
     return reinterpret_cast<char*>(sym_obj->valueptr);
 }
 
+// TODO: Have this returning a sizeof(bool) int, and use that instead of wasting so much space
 u64 is_truthy_value(SinObj* obj) {
-    return (obj->type == Bool && (unwrap_bool(obj, "is_truthy_value") == false))?false:true;
+    return (obj->type == Bool && (unwrap_bool(obj, "is_truthy_value") == false))
+            ? false : true;
 }
 
 // TODO: actual global objects for constant values like #t, #f or '() ?
@@ -432,30 +443,39 @@ void _get_both(SinObj* lst, SinObj* car, SinObj* cdr) {
     *cdr = cons_obj[1];
 }
 
+/// Vector layout is as so
+/// vector->type = Vector
+/// vector->valueptr = raw_vector
+/// raw_vector is a list of SinObj
+/// position 0 is Int,len (being the amount of SinObj to the right of this)
+/// position i (1-indexed) is Other,SinObj*
+
 SinObj* applyprim_vector(SinObj* curptr) { // apply vector
     SinObj cur = *curptr;
     // FIXME: arbitrarily large vectors.
-    SinObj* buf = new SinObj[256];
+    SinObj** buf = new SinObj*[256];
     u64 i = 0;
 
     while (cur.type == Cons && i < 256) {
         SinObj car, cdr;
         _get_both(&cur, &car, &cdr);
-        buf[i++] = car;
+        buf[i++] = alloc(1);
+        buf[i]->type = car.type;
+        buf[i]->valueptr = car.valueptr;
         cur = cdr;
     }
-    if (i == 256 && cur.type != Null) {fatal_err("Vectors larger than 256 elements are unimplemented. Sorry!");}
+    if (i == 256 && cur.type != Null) {
+        fatal_err("Vectors larger than 256 elements are unimplemented. Sorry!");
+    }
 
-    // i is amount of elements, + 1 is 1 object for size.
+    // i is amount of elements, add 1 for length at pos 0.
     SinObj* mem = alloc(i+1);
 
-    SinObj size;
-    size.valueptr = reinterpret_cast<u64*>(i);
-    size.type = Int;
-    mem[0] = size;
-
-    for (u64 j = 1; j <= i; j++) {
-        mem[j] = buf[j-1];
+    mem[0].type = Int;
+    mem[0].valueptr = reinterpret_cast<u64*>(i);
+    for (u64 j = 0; j < i; j++) {
+        mem[j+1].type = Other;
+        mem[j+1].valueptr = reinterpret_cast<u64*>(buf[j]);
     }
     delete [] buf;
 
@@ -472,10 +492,16 @@ SinObj* prim_make_45vector(SinObj* length_obj, SinObj* fill) { // make-vector
      // i is amount of elements, + 1 is 1 object for size.
     SinObj* vec = alloc(1 + len);
 
-    vec[0] = *length_obj;
+    vec[0].type = Int;
+    vec[0].valueptr = reinterpret_cast<u64*>(len);
     for (u64 i = 1; i <= len; i++) {
-        // not sure how safe it is to just put fill here a lot.
-        vec[i] = *fill;
+        // copy the fill var
+        SinObj* cur = alloc(1);
+        cur->type = fill->type;
+        cur->valueptr = fill->valueptr;
+
+        vec[i].type = Other;
+        vec[i].valueptr = reinterpret_cast<u64*>(cur);
     }
 
     SinObj* ret = alloc(1);
@@ -494,34 +520,42 @@ SinObj* prim_vector_63(SinObj* maybevec) {
 
 GEN_EXPECT1ARGLIST(applyprim_vector_45length, prim_vector_45length)
 SinObj* prim_vector_45length(SinObj* vec) { // vector-length
-    SinObj* vec_obj = unwrap_vector(vec, "prim_vector_45length");
-    return &vec_obj[0];
+    SinObj* raw_vector = unwrap_vector(vec, "prim_vector_45length");
+    return &raw_vector[0];
 }
 
+void bounds_check(SinObj* raw_vector, s64 pos) {
+    s64 length = unwrap_int(&raw_vector[0], "bounds check");
+    if (pos + 1 > length) {
+        fatal_errf("Bounds check fail, wanted pos %ld, only %ld elements", pos, length);
+    }
+}
 
 GEN_EXPECT2ARGLIST(applyprim_vector_45ref, prim_vector_45ref)
 SinObj* prim_vector_45ref(SinObj* vector, SinObj* pos) { // vector-ref
 
-    SinObj* vec = unwrap_vector(vector, "vector-ref vec");
-    u64 index_pos = static_cast<u64>(unwrap_int(pos, "vector-ref index_pos"));
+    SinObj* vec_raw = unwrap_vector(vector, "vector-ref");
+    s64 index_pos = unwrap_int(pos, "vector-ref index_pos");
+    bounds_check(vec_raw, index_pos);
 
     // + 1 becuase length is at index 0, so need to push everything up 1.
-    return &vec[index_pos + 1];
+    return reinterpret_cast<SinObj*>(vec_raw[index_pos + 1].valueptr);
 }
 
 
 GEN_EXPECT3ARGLIST(applyprim_vector_45set_33, prim_vector_45set_33)
-SinObj* prim_vector_45set_33(SinObj* vec, SinObj* pos, SinObj* val) { // vector-set!
+SinObj* prim_vector_45set_33(SinObj* vector, SinObj* pos, SinObj* val) { // vector-set!
 
-    SinObj* vector = unwrap_vector(vec, "vector-set!");
-    u64 index_pos = static_cast<u64>(unwrap_int(pos, "apply vector-set! index_pos"));
+    SinObj* vec_raw = unwrap_vector(vector, "vector-set!");
+    s64 index_pos = unwrap_int(pos, "apply vector-set! index_pos");
+    bounds_check(vec_raw, index_pos);
+
+    SinObj* copy = alloc(1);
+    copy->type = val->type;
+    copy->valueptr = val->valueptr;
 
     // + 1 becuase length is index 0, so need to push everything up 1.
-    // unsure of safety of lifetimes just to deref val here.
-    SinObj* newpos = alloc(1);
-    newpos->valueptr = val->valueptr;
-    newpos->type = val->type;
-    vector[index_pos + 1] = *newpos;
+    vec_raw[index_pos + 1].valueptr = reinterpret_cast<u64*>(copy);
     return const_init_void();
 }
 
@@ -548,17 +582,20 @@ int cons_eq_helper(SinObj* a, SinObj* b) {
 }
 
 
-// it is assumed that if this is called,
-// a and b MUST both be Vector objects.
 int vec_eq_helper(SinObj* a, SinObj* b) {
     SinObj* avec = unwrap_vector(a, "vec_eq_helper avec");
     SinObj* bvec = unwrap_vector(b, "vec_eq_helper bvec");
     // choose either vector it doesnt matter which we use for length.
-    u64 len = static_cast<u64>(unwrap_int(&avec[0], "vec_eq_helper len"));
+    s64 alen = unwrap_int(&avec[0], "vec_eq_helper alen");
+    s64 blen = unwrap_int(&bvec[0], "vec_eq_helper blen");
+
+    if (alen != blen) {
+        return false;
+    }
 
     // if the vectors are of different length, it will be caught on first iteration.
     // else, they it will work perfectly.
-    for (u64 i=0; i <= len; i++) {
+    for (s64 i=0; i <= alen; i++) {
         if (eq_helper(&avec[i], &bvec[i]) == 0) {
             return 0;
         }
@@ -626,6 +663,7 @@ int eq_helper(SinObj* a, SinObj* b) {
 }
 
 // Does not conform to Rackets eq? probably. PRs welcome to do that :)))
+// But this is a scheme... so i just need to read the standard...
 // Takes in 2 SinObj* and tells if they are equal.
 /// Returns a SinObj* of type Bool
 GEN_EXPECT2ARGLIST(applyprim_eq_63, prim_eq_63)
@@ -648,7 +686,7 @@ SinObj* prim_equal_63(SinObj* a, SinObj* b) { // equal?
 ////// Other Predicates
 
 SinObj* make_predicate(bool b) {
-    return b ?const_init_true() : const_init_false();
+    return b ? const_init_true() : const_init_false();
 }
 
 // TODO: return #t/#f constants here?
@@ -899,13 +937,46 @@ SinObj* prim_hash_45keys(SinObj* hash) { // hash-keys
     return map_keys(map);
 }
 
-GEN_EXPECT2ARGLIST(applyprim_hash_45ref, prim_hash_45ref)
-SinObj* prim_hash_45ref(SinObj* hash, SinObj* key) { // hash-ref
+SinObj* applyprim_hash_45ref(SinObj* cur) { // hash-ref
+    SinObj* hash = nullptr;
+    SinObj* key = nullptr;
+    SinObj* default_obj = nullptr;
+
+    if (cur->type == Cons) {
+        SinObj hashcar, hashcdr;
+        _get_both(cur, &hashcar, &hashcdr);
+        hash = &hashcar;
+        if (hashcdr.type == Cons) {
+            SinObj keycar, keycdr;
+            _get_both(&hashcdr, &keycar, &keycdr);
+            key = &keycar;
+            if (keycdr.type == Cons) {
+                SinObj defcar, defcdr;
+                _get_both(&keycdr, &defcar, &defcdr);
+                default_obj = &defcar;
+                if (defcdr.type == Null) {
+                    return hash_ref_impl(hash, key, default_obj);
+                } else {
+                    fatal_err("Too many args given in hash-ref"); // TODO test this?
+                }
+            } else if (keycdr.type == Null) {
+                return hash_ref_impl(hash, key, default_obj);
+            }
+        }
+    }
+    fatal_err("Bad Types Somewhere in hash-ref... good luck!")
+
+}
+
+SinObj* hash_ref_impl(SinObj* hash, SinObj* key, SinObj* default_obj) {
     Map* map = unwrap_hash(hash, "hash-ref");
 
     SinObj* val = map_get(map, key);
     if (val == nullptr) {
-        fatal_err("Map did not have requested key");
+        if (default_obj == nullptr) {
+            fatal_err("Map did not have requested key");
+        }
+        return default_obj;
     }
     return val;
 }
@@ -921,19 +992,16 @@ SinObj* prim_hash_45set(SinObj* hash, SinObj* key, SinObj* val) { // hash-set
 }
 
 GEN_EXPECT1ARGLIST(applyprim_hash_63, prim_hash_63)
-SinObj* prim_hash_63(SinObj* hash) {
+SinObj* prim_hash_63(SinObj* hash) { // hash?
     return make_predicate(hash->type == Hash);
 }
 
 GEN_EXPECT1ARGLIST(applyprim_hash_45count, prim_hash_45count)
-SinObj* prim_hash_45count(SinObj* hash) {
+SinObj* prim_hash_45count(SinObj* hash) { // hash-count
     Map* map = unwrap_hash(hash, "hash-count");
     u64 count = map_count(map);
     return const_init_int(static_cast<s64>(count));
 }
-
-
-// hash hash-ref hash-set hash-count hash-keys hash-has-key? hash?
 
 } // end extern "C"
 
