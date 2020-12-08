@@ -95,6 +95,7 @@
 
 (define (desugar e)
   (desugar-aux (wrap e) (initial-env)))
+(define (d e) (desugar-aux e (initial-env))) ; helper
 
 ; e is the expression that we are desugaring into the IR language.
 ; env is the hash of bound identifiers in the current scope.
@@ -102,15 +103,12 @@
 ; This function dispatches to the correct desugaring function
 ; it is mutually recursive with each desugaring function.
 (define (desugar-aux e env)
-  #;(pretty-print `(e: ,e))
   (match e
     ; match a special form that has not been overridden,
-    ; so it still maps to a transformer function
     [`(,(? (λ (ef) (t? (hash-ref env ef #f))) tft) ,_ ...)
      (match-define (t tf) (hash-ref env tft))
      (tf e env)]
-    ; match a primitive operator that has not been overridden,
-    ; so it still maps to a primitive marker.
+    ; match a primitive operator in function position that has not been overridden.
     [`(,(? prim? op) ,es ...)
      #:when (p? (hash-ref env op #f))
      (desugar-aux `(%%prim ,op ,@es) env)]
@@ -122,17 +120,16 @@
      (match mapsto
        ; the symbol has not been overridden, so we just output it.
        [#f x]
-       ; a non-shadowed primitive. When not in function position,
+       ; a non-shadowed primitive. When not in function position (AKA here),
        ; we need to eta-expand this to an apply-prim form.
        ; (see: https://stackoverflow.com/questions/55996764/ for eta-expansion)
        [(p) (desugar-aux `(%%lambda vararg (%%apply-prim ,x vararg)) env)]
        ; the symbol has set to v
        [(o v) v]
-       [(t badform) (error (format "special form '~a' in wrong position"
-                                   badform))])]
-    ; TODO: ensure this compiles correctly.
-    [`#(,es ...) ; vector literal
-     (desugar-aux `(%%prim vector ,@es) env)]
+       [(t badform) (error (format "special form '~a' in wrong position" badform))])]
+    ; a vector literal, the datums here arent quoted, so during expansion we quote them.
+    [`#(,(? datum? dats) ...)
+     (desugar-aux `(%%prim vector ,@(map (λ (d) (list '%%quote d)) dats)) env)]
     ; simple application, we desugar each part in the current env.
     [`(,es ...)
      (map (λ (e) (desugar-aux e env)) es)]
@@ -265,7 +262,6 @@
   `(set! ,(prefix x) ,(desugar-aux set-to env)))
 
 (define (desugar-quote e env)
-  ;(displayln `(quoting ,e))
   (match-define `(,_ ,(? datum? d)) e)
   `(quote ,d))
 

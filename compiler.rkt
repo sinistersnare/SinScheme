@@ -7,9 +7,10 @@
  clang++-path
  compiler-flags
  scm->exe
- llvmir->exe
- scm->llvmir
- gen-header-name)
+ llvm->exe
+ scm->llvm
+ gen-header-name
+ gen-exe-name)
 
 (require (only-in "src/racket/top-level.rkt" top-level))
 (require (only-in "src/racket/desugar.rkt" desugar))
@@ -70,61 +71,70 @@
 
 ;; End actual LLVM emitter code.
 
-(define clang++-path "clang++")
+(define clang++-path "clang++") ; let's hope its in the PATH lol
 
-(define (gen-header-name)
-  (when (not (directory-exists? "build")) (make-directory "build"))
-  (string-append "build/" (symbol->string (gensym 'generated_header)) ".ll"))
+(define (gen-header-name name)
+  (unless (directory-exists? "build") (make-directory "build"))
+  (string-append "build/" (symbol->string name) ".ll"))
+
+(define (gen-exe-name name)
+  (unless (directory-exists? "build") (make-directory "build"))
+  (string-append "build/" (symbol->string name) ".exe"))
 
 (define compiler-flags
-  (string-join '("-Wno-unused-command-line-argument"
-                 "-std=c++11"
+  (string-join '("-std=c++11"
                  ; "-lpthread" ; why am i compiling threads?
                  ; "-O2" ;;; TODO figure out why optimization fails
+                 "-g" ;;; TODO figure out why debug fails
+                 ; "-DGC_DEBUG"
                  "-Wall"
                  "-Weverything"
+                 "-Wno-unused-command-line-argument"
                  "-Wno-c++98-compat" ; so i can use nullptr unmolested.
-                 "-Wno-extra-semi-stmt"
-                 ; "-g"
-                 ; "-DGC_DEBUG"
-                 )))
+                 "-Wno-c++98-compat-pedantic" ; so i can use variadic macros for errors.
+                 "-Wno-extra-semi-stmt")))
 
 ; should probably parameterize this too.
 (define header-location "./src/cpp/header.cpp")
 
-(define (scm->llvmir in-port out-port clang-path all-compiler-flags
-                     libgc-include-dir-path compiled-prelude-name)
-  ; Compile the header file into llvm-ir
+; separates the runtime header and the user code
+(define ir-separator "\n\n;;;;;;;End Runtime Header;;;;;;;\n\n")
+
+; gets the runtime-half of the LLVM IR as a string.
+(define (get-runtime-header)
+  (define runtime-header-name (gen-header-name (gensym 'compiled_runtime)))
   (system (format "~a ~a ~a -I~s -S -emit-llvm -o ~a"
-                  clang-path all-compiler-flags header-location
-                  libgc-include-dir-path compiled-prelude-name))
-  ; Compile Scheme code to llvm-ir
-  (define compiled-code
-    (let ([compiled-str (open-output-string)])
-      (compile-program in-port compiled-str)
-      (get-output-string compiled-str)))
-  ; create a complete llvm program with prelude.
-  (define complete-program (string-append (file->string compiled-prelude-name)
-                                          "\n\n;;;;;;;End Prelude;;;;;;;\n\n" compiled-code))
-  (display complete-program out-port))
+                  clang++-path compiler-flags header-location
+                  libgc-include-dir runtime-header-name))
+  (file->string runtime-header-name))
 
-(define (llvmir->exe combined-ir-filepath clang-path all-compiler-flags libgc-lib-path outfilename)
-  (system (format "~a ~a ~a ~a -o ~a" clang-path all-compiler-flags
-                  combined-ir-filepath libgc-lib-path outfilename)))
+; compiles the given scheme to the user-half of the LLVM output.
+; Takes an input-port that will be `read-begin`d into a scheme symbol,
+; returns a string, the user-half of the LLVM IR.
+; The input port is NOT closed by this, close it yourself, chump!
+(define (scm->llvm scm-port)
+  (define scm (read-begin scm-port))
+  (~> scm top-level desugar simplify-ir assignment-convert
+      alphatize anf-convert cps-convert closure-convert llvm-convert))
 
-(define (scm->exe inputport outfilename clang-path all-compiler-flags
-                  libgc-object-file-path libgc-include-dir-path header-llvm-built-name)
-  (define combined-file-location (string-append "build/"
-                                                (symbol->string (gensym 'generated_combined)) ".ll"))
-  (define combined-output-file (open-output-file combined-file-location #:exists 'replace))
-  (scm->llvmir inputport combined-output-file clang-path all-compiler-flags
-               libgc-include-dir-path header-llvm-built-name)
+; compile the given user-half of LLVM to a full exe named `exe-name`.
+; Takes 2 strings:, the user-half LLVM, and the name of the resulting executable.
+; Returns void.
+(define (llvm->exe user-llvm exe-name)
+  (define full-ir (string-append (get-runtime-header) ir-separator user-llvm))
+  (define combined-ir-path (gen-header-name (gensym 'generated_combined)))
+  (define out-combined-file (open-output-file combined-ir-path #:mode 'text #:exists 'replace))
+  (display full-ir out-combined-file)
+  (system (format "~a ~a ~a ~a ~a ~a"
+                  clang++-path compiler-flags combined-ir-path libgc-obj-path "-o" exe-name))
+  (close-output-port out-combined-file))
 
-  (close-output-port combined-output-file) ; dont use combined-output-file anymore!
-  (llvmir->exe combined-file-location clang-path
-               all-compiler-flags libgc-object-file-path outfilename)
-  (void))
-
-; if all params are null then we are in library mode,
-; and we provide scm->llvm scm->exe and llvm->exe in library mode.
+; compile the given scheme to a full exe named `exe-name`.
+; Takes an input-port that will be `read-begin`d into a scheme symbol,
+; and a string, the name of the resulting executable.
+; Returns void.
+; The input port is NOT closed by this, close it yourself, chump!
+(define (scm->exe scm-port exe-name)
+  (define user-llvm (scm->llvm scm-port))
+  (llvm->exe user-llvm exe-name))
 

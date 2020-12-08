@@ -62,25 +62,18 @@ u64 closure_get_fn_part(SinObj* clo) {
     return reinterpret_cast<u64>(clo_obj[0].valueptr);
 }
 
-// Returns a vector object internally,
-// but it should be treated as an opaque object, accessed thru closure_env_* API
-SinObj* closure_get_env_part(SinObj* clo) {
-    SinObj* clo_obj = unwrap_clo(clo, "closure_get_env_part");
-    return &clo_obj[1];
-}
-
 /// Closure Memory Layout
 /// It is 2 SinObj laid out besides eachother.
-// The first SinObj (index 0) is an Other type and it has a ptrvalue of the function pointer
-// The second SinObj (index 1) is the vector that holds the environment (free variables).
+/// The first SinObj (index 0) is an Other type and it has a ptrvalue of the function pointer
+/// The second SinObj (index 1) is the vector that holds the environment (free variables).
 SinObj* closure_alloc(const u64 amt_freevars, u64 cloval) {
     SinObj* clo_obj = alloc(2);
     SinObj* vec = prim_make_45vector(const_init_int(static_cast<s64>(amt_freevars)), const_init_int(0));
-    SinObj clo_part;
-    clo_part.type = Other; // TODO, layout of closures?
+    SinObj lam_part;
     // another reinterpret (the first being in llvm-convert) to make sure this doesnt get swept.
-    clo_part.valueptr = reinterpret_cast<u64*>(cloval);
-    clo_obj[0] = clo_part;
+    lam_part.type = Other; // TODO, layout of closures?
+    lam_part.valueptr = reinterpret_cast<u64*>(cloval);
+    clo_obj[0] = lam_part;
     clo_obj[1] = *vec;
 
     SinObj* ret = alloc(1);
@@ -89,6 +82,9 @@ SinObj* closure_alloc(const u64 amt_freevars, u64 cloval) {
     return ret;
 }
 
+/// When creating a closure, we need to store the function's free variables into the environment.
+/// This takes the closure, the value of the free variable, and the position
+/// of the variable in the environment, and places it into the closure.
 void closure_place_freevar(SinObj* clo, SinObj* freevar, u64 positionint) {
     // unwrap handles asserting
     SinObj* clo_obj = unwrap_clo(clo, "closure_place_freevar");
@@ -107,44 +103,43 @@ SinObj* closure_env_get(SinObj* clo, u64 pos) {
     return prim_vector_45ref(vec, const_init_int(static_cast<s64>(pos)));
 }
 
-
 Map* unwrap_hash(SinObj* hash_obj, const char* fn) {
-    ASSERT_TYPE(*hash_obj, Hash, "unwrap_hash takes a Hash object! in fn %s", fn);
+    ASSERT_TYPE(*hash_obj, Hash, "unwrap_hash takes a Hash object! Got %d in fn %s", hash_obj->type, fn);
     return reinterpret_cast<Map*>(hash_obj->valueptr);
 }
 
 SinObj* unwrap_cons(SinObj* cons_obj, const char* fn) {
-    ASSERT_TYPE(*cons_obj, Cons, "unwrap_cons takes a Cons object! in fn %s", fn);
+    ASSERT_TYPE(*cons_obj, Cons, "unwrap_cons takes a Cons object! Got %d in fn %s", cons_obj->type, fn);
     return reinterpret_cast<SinObj*>(cons_obj->valueptr);
 }
 
 SinObj* unwrap_vector(SinObj* vec_obj, const char* fn) {
-    ASSERT_TYPE(*vec_obj, Vector, "unwrap_vector takes a Vector object! in fn %s", fn);
+    ASSERT_TYPE(*vec_obj, Vector, "unwrap_vector takes a Vector object! Got %d in fn %s", vec_obj->type, fn);
     return reinterpret_cast<SinObj*>(vec_obj->valueptr);
 }
 
 SinObj* unwrap_clo(SinObj* clo_obj, const char* fn) {
-    ASSERT_TYPE(*clo_obj, Closure, "unwrap_clo takes a Closure object! in fn %s", fn);
+    ASSERT_TYPE(*clo_obj, Closure, "unwrap_clo takes a Closure object! Got %d in fn %s", clo_obj->type, fn);
     return reinterpret_cast<SinObj*>(clo_obj->valueptr);
 }
 
 s64 unwrap_int(SinObj* int_obj, const char* fn) {
-    ASSERT_TYPE(*int_obj, Int, "unwrap_int takes an Int object! in fn %s", fn);
+    ASSERT_TYPE(*int_obj, Int, "unwrap_int takes an Int object! Got %d in fn %s", int_obj->type, fn);
     return reinterpret_cast<s64>(int_obj->valueptr);
 }
 
 u64 unwrap_bool(SinObj* bool_obj, const char* fn) {
-    ASSERT_TYPE(*bool_obj, Bool, "unwrap_bool takes a Bool object! in fn %s", fn);
+    ASSERT_TYPE(*bool_obj, Bool, "unwrap_bool takes a Bool object! Got %d in fn %s", bool_obj->type, fn);
     return reinterpret_cast<u64>(bool_obj->valueptr);
 }
 
 char* unwrap_str(SinObj* str_obj, const char* fn) {
-    ASSERT_TYPE(*str_obj, Str, "unwrap_str takes a Str object! in fn %s", fn);
+    ASSERT_TYPE(*str_obj, Str, "unwrap_str takes a Str object! Got %d in fn %s", str_obj->type, fn);
     return reinterpret_cast<char*>(str_obj->valueptr);
 }
 
 char* unwrap_sym(SinObj* sym_obj, const char* fn) {
-    ASSERT_TYPE(*sym_obj, Sym, "unwrap_sym takes a Sym object! in fn %s", fn);
+    ASSERT_TYPE(*sym_obj, Sym, "unwrap_sym takes a Sym object! Got %d in fn %s", sym_obj->type, fn);
     return reinterpret_cast<char*>(sym_obj->valueptr);
 }
 
@@ -670,6 +665,12 @@ SinObj* prim_number_63(SinObj* n) { // number?
 GEN_EXPECT1ARGLIST(applyprim_integer_63, prim_integer_63)
 SinObj* prim_integer_63(SinObj* n) { // integer?
     return make_predicate(n->type == Int);
+}
+
+/// Returns a SinObj of type Bool
+GEN_EXPECT1ARGLIST(applyprim_boolean_63, prim_boolean_63)
+SinObj* prim_boolean_63(SinObj* b) { // boolean?
+    return make_predicate(b->type == Bool);
 }
 
 

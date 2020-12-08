@@ -3,7 +3,7 @@
 #include "stdio.h"
 #include <stdint.h>
 
-#define ASSERT_TYPE(obj,expected,msg, fnname) if (((obj).type) != (expected)) {fatal_errf(msg, fnname);}
+#define ASSERT_TYPE(obj,expected,msg,...) if (((obj).type) != (expected)) {fatal_errf(msg, __VA_ARGS__);}
 
 #define fatal_err(format) { \
         printf("Fatal library run-time error: "); \
@@ -12,9 +12,9 @@
         exit(1); \
     }
 
-#define fatal_errf(format, arg) { \
+#define fatal_errf(format, ...) { \
         printf("Fatal library run-time error: "); \
-        printf(format, arg); \
+        printf(format, __VA_ARGS__); \
         printf("\n"); \
         exit(1); \
     }
@@ -111,7 +111,6 @@ SinObj* make_predicate(bool);
 
 SinObj* closure_alloc(const u64 amt_freevars, u64 cloval);
 u64 closure_get_fn_part(SinObj*);
-SinObj* closure_get_env_part(SinObj*);
 SinObj* closure_env_get(SinObj* clo, u64 pos);
 void closure_place_freevar(SinObj* clo, SinObj* freevar, u64 positionint);
 
@@ -162,6 +161,8 @@ SinObj* prim_number_63(SinObj*);
 SinObj* applyprim_number_63(SinObj*);
 SinObj* prim_integer_63(SinObj*);
 SinObj* applyprim_integer_63(SinObj*);
+SinObj* prim_boolean_63(SinObj*);
+SinObj* applyprim_boolean_63(SinObj*);
 SinObj* prim_cdr(SinObj*);
 SinObj* applyprim_cdr(SinObj*);
 SinObj* prim__42(SinObj*, SinObj*);

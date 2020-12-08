@@ -26,8 +26,7 @@
          cps-exp?
          test-cps-convert
          proc-exp?
-         test-closure-convert
-         test-llvm-convert)
+         test-closure-convert)
 
 (require (only-in racket/format ~a))
 
@@ -45,7 +44,6 @@
         clang++-path-submit-server
         "clang++")))
 
-; TODO: add boolean? prim, make sure runtime has support for it.
 (define prims-list
   '(= > < <= >= + - * / promise?
       cons? null? cons car cdr list first second third fourth fifth
@@ -53,21 +51,23 @@
       vector? vector make-vector vector-ref vector-set! vector-length
       set set->list list->set set-add set-union set-count set-first
       set-rest set-remove hash hash-ref hash-set hash-count hash-keys
-      hash-has-key? hash? list? void? procedure? number? integer?
+      hash-has-key? hash? list? void? procedure? number? integer? boolean?
       error void print println display write exit halt eq? eqv? equal? not))
-
-(define ok-set (list->set (string->list (string-append "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-                                                       "abcdefghijklmnopqrstuvwxyz0123456789$"))))
+(define (prims->list) prims-list)
+(define (prim? op)
+  (if (member op prims-list)
+      #t
+      #f))
 
 (define (symbol-append . ss)
   (match ss
-    ['() (raise "symbol-append takes at least one symbol.")]
-    [`(,one) one]
-    [`(,one ,rest ...)
-     (string->symbol (string-append (~a one)
-                                    (~a (apply symbol-append rest))))]))
+    ['() '||]
+    [`(,one ,rest ...) (string->symbol (string-append (~a one) (~a (apply symbol-append rest))))]))
+
 
 (define (c-name s)
+  (define ok-set
+    (list->set (string->list "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789$")))
   (foldr string-append
          ""
          (map (lambda (c)
@@ -75,15 +75,11 @@
                     (string c)
                     (string-append "_" (number->string (char->integer c)))))
               (string->list (symbol->string s)))))
+
 (define (prim-name op)
   (string-append "prim_" (c-name op)))
 (define (applyprim-name op)
   (string-append "applyprim_" (c-name op)))
-(define (prims->list) prims-list)
-(define (prim? op)
-  (if (member op prims-list)
-      #t
-      #f))
 
 (define reserved-list '(letrec letrec* let let* if and or set! quote begin
                          cond case when unless delay force dynamic-wind
@@ -137,6 +133,7 @@
       [`((,(? datum?) ...) ,(? (rec/with env))) #t]
       [else #f]))
   (match e
+    [`#(,(? datum?) ...) #t]
     [`(letrec* ([,(? var? xs) ,es] ...) ,e0)
      (and (no-duplicates? xs)
           (andmap (rec/with (ext env xs))
@@ -190,7 +187,6 @@
     [`(quote ,(? datum?)) #t]
     [`(,(? prim?) ,(? (rec/with env)) ...) #t]
     [`(apply ,(? (rec/with env)) ,(? (rec/with env))) #t]
-    [`#(,(? (rec/with env)) ...) #t]
     [`(,(? (rec/with env)) ,(? (rec/with env)) ...) #t]
     [else (pretty-print `(bad-scheme ,e ,env)) #f]))
 
@@ -668,23 +664,6 @@
         #f)))
 
 
-
-
-(define (test-llvm-convert llvm-convert prog)
-  (define val (eval-proc prog))
-  (define llvm (llvm-convert prog))
-  (define val0 (eval-llvm llvm))
-  (if (equal? val val0)
-      #t
-      (begin
-        (display (format (string-append "Test-llvm-convert: two different values"
-                                        " (~a and ~a) before and after closure conversion.\n")
-                         val val0))
-        #f)))
-
-
-
-
 (define (racket-compile-eval e)
   (define (rewrite-match e)
     ; Hacky way to get match to raise a srfi/34 exception when it fails
@@ -733,4 +712,4 @@
                            (define env-ref vector-ref)
                            (define (clo-app f . vs) (apply (vector-ref f 0) (cons f vs)))
                            ,@(map (match-lambda [`(proc (,xs ...) ,bdy) `(define ,xs ,bdy)]) procs)
-                           (main)))))))))
+                           (main '() '())))))))))

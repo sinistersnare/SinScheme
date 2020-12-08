@@ -10,13 +10,23 @@ becuase that sounds like a fun post idea!
 
 ## Installing Dependencies ##
 
-### MacOS ###
-Boehm-GC is a required dependency. I am pretty sure it can be downloaded on homebrew:
+Start by installing the threading library in Racket:
 
-`$ brew install libgc`
+```bash
+$ raco pkg install threading
+```
+
+Then install The Boehm GC, which is what the runtime uses:
+
+### MacOS ###
+I found it on homebrew:
+
+```bash
+$ brew install libgc
+```
 
 The installed files should be somehwere like `/usr/local/Cellar/bdw-gc/`. Make sure you
-write the locations correctly as noted below.
+set the locations correctly as noted below.
 
 ### Linux ###
 
@@ -31,20 +41,6 @@ $ ./configure --prefix=/usr/local/ --disable-threads --enable-static
 You will see the relevant comment.
 
 If you have easy instructions on how to do it for your platform, please send a PR!!!
-
-## TODO: ##
-* Document how the fuck -e works (for directly compiling code)
-	* Would be nice to completely revamp the compiler interface.
-* Add println and displayln primitives
-* Support variable shadowing in desugar. Test by replacing `displayln` with `println` in hello.sinscm
-* Support t0 => e0 cond-clause syntax in desugar (or top-level?).
-* Actually desugar dynamic-wind and dont add it to the wrapped runtime funcs.
-	* See https://www.scheme.com/tspl4/control.html
-* Do user-defined functions ensure arg count is good? If not, when we do closure-conversion, and turn all lambdas into vararg, we should add some 'if numargs expected is not given, fail' code...? May be some nontrivial stuff cause of how barren the grammar is, but can be a function that wraps...? Maybe!
-	* Would only work in trivial case, may require CFA/program-analysis.
-* Rewrite runtime in Rust. Because Rust > C++, fite me.
-	* Will require a GC implementation.... FUN!
-	* And possibly an extra step to integrate `cargo` instead of shelling out to g++ in racket.
 
 ## Running The Compiler ##
 
@@ -76,7 +72,6 @@ Enjoy!
 
 
 ## Testing ##
-
 
 We also have a tests.rkt file, you can interact with as so:
 
@@ -121,9 +116,25 @@ If you would like to contribute documentation feel free :)
 I am pretty sure this only works on 64bit machines, so dont try on 32bit.
 
 This was completed as a final project for my undergraduate compilers course.
-[You can find the page here]
-([200~https://www.cs.umd.edu/class/fall2017/cmsc430/).
+[You can find the page here]([https://www.cs.umd.edu/class/fall2017/cmsc430/).
 It was a really fun class, you should take take a look at it!
+
+## TODO: ##
+* Seems theres a bug in llvm-convert when a symbol and string have the same contents.
+	* (becuase the globals contents are used for the global-hash key, it will clash)
+	* hmm it may not actually be a bug. Because the code is still there, and the address is valid. Its just that there would be a global that says its a string and it could also be used as a symbol. hmmmm
+* Document how the fuck -e works (for directly compiling code)
+	* Would be nice to completely revamp the compiler interface.
+* Add println and displayln primitives
+* Support variable shadowing in desugar. Test by replacing `displayln` with `println` in hello.sinscm
+* Support t0 => e0 cond-clause syntax in desugar (or top-level?).
+* Actually desugar dynamic-wind and dont add it to the wrapped runtime funcs.
+	* See https://www.scheme.com/tspl4/control.html
+* Do user-defined functions ensure arg count is good? If not, when we do closure-conversion, and turn all lambdas into vararg, we should add some 'if numargs expected is not given, fail' code...? May be some nontrivial stuff cause of how barren the grammar is, but can be a function that wraps...? Maybe!
+	* Would only work in trivial case, may require CFA/program-analysis.
+* Rewrite runtime in Rust. Because Rust > C++, fite me.
+	* Will require a GC implementation.... FUN!
+	* And possibly an extra step to integrate `cargo` instead of shelling out to g++ in racket.
 
 ## License ##
 

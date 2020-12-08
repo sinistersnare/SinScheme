@@ -4,9 +4,12 @@
 ;; Its pretty bad, i hacked it to work for this... so yeah
 
 (require (only-in "src/racket/utils.rkt"
-                  test-desugar test-alphatize
-                  test-anf-convert test-cps-convert
-                  test-closure-convert test-llvm-convert
+                  test-desugar ; desugar testing
+                  test-alphatize ; alphatize testing
+                  test-anf-convert ; anf testing
+                  test-cps-convert ; cps testing
+                  test-closure-convert ; closure-convert testing
+                  eval-proc eval-llvm ; llvm testing
                   read-begin eval-top-level))
 
 (require (only-in "src/racket/desugar.rkt" desugar))
@@ -19,10 +22,31 @@
 (require (only-in "src/racket/closure-convert.rkt" closure-convert))
 (require (only-in "src/racket/llvm-convert.rkt" llvm-convert))
 
-(require (only-in "compiler.rkt"
-                  gen-header-name
-                  libgc-include-dir libgc-obj-path
-                  clang++-path compiler-flags scm->exe))
+(require (only-in "compiler.rkt" gen-header-name gen-exe-name scm->exe))
+
+; compiles and interprets the code and calls the callback
+; giving it the compiled and interpreted results as strings (in that order).
+(define (compile-and-interpret code-str fin)
+  ; get value when we interpret the input
+  (define interpreted-raw (open-input-string code-str))
+  (define interpreted-input (read-begin interpreted-raw))
+  (define interpreted-value (eval-top-level interpreted-input))
+  (define interpreted-string (~a interpreted-value))
+  ; get value when we compile and execute the input
+  (define compiler-input (open-input-string code-str))
+  (define generated-name (gensym 'generated))
+  (define compiled-output (compile-and-run compiler-input generated-name))
+  (fin compiled-output interpreted-string))
+
+; takes the output of llvm-convert, appends it to the header,
+; compiles it with clang++, runs it, and returns the output as a string.
+(define (compile-and-run code base-name)
+  (define header-name (gen-header-name base-name))
+  (define exe-name (gen-exe-name base-name))
+  ; compile program, creating exe-name
+  (scm->exe (open-input-string code) exe-name)
+  ; return output of program after running it.
+  (string-normalize-spaces (with-output-to-string (λ () (system (format "./~a" exe-name))))))
 
 (define (new-failing-test test-file-path)
   (lambda ()
@@ -31,54 +55,25 @@
     (define guarded-code `(guard (_ [',didnt-fail-tag #t] [else #f])
                                  ,file-contents (raise ',didnt-fail-tag)))
     (define guarded-string (symbol->string guarded-code))
-    (define top-level-part-port (open-input-string guarded-string))
-    (define top-level-part-scm (read-begin top-level-part-port))
-    (define top-level-part-value (eval-top-level top-level-part-scm))
-
-    (define llvm-part-port (open-input-string (symbol->string guarded-string)))
-    (define gen-ll-name (gen-header-name))
-    (define gen-exe-name (string-append "build/" (symbol->string (gensym 'genexe)) ".exe"))
-    (scm->exe llvm-part-port gen-exe-name clang++-path compiler-flags
-              libgc-obj-path libgc-include-dir gen-ll-name)
-    (define llvm-part-value
-      (read (open-input-string
-             (with-output-to-string (lambda () (system (format "./~a" gen-exe-name)))))))
-    ; check that top-level and compiled codes return the same.
-    (and top-level-part-value llvm-part-value)))
+    (compile-and-interpret guarded-string
+                           (λ (c i) (displayln `(TODO: got ,c and ,i)) #f))))
 
 (define (new-passing-test test-file-path)
   (lambda ()
     (define file-contents (file->string test-file-path))
+    (compile-and-interpret
+     file-contents
+     (λ (c i)
+       ; convert the interpreted output to a string to compare.
+       (define success (equal? c i))
+       (unless success (displayln (format "llvm:~a\ntop-level:~a" c i)))
+       success))))
 
-    (define top-level-part-input (open-input-string file-contents))
-    (define top-level-part-scm (read-begin top-level-part-input))
-    (define top-level-part-value (eval-top-level top-level-part-scm))
+; TODO: move testing functions from utils.rkt to here?
+; Or maybe move the testing functionality into the tests/ folder, and this just be the interface?
 
-    ; This part is very brittle but it works
-    ; Convert the process output to a racket value
-    ; if that value is a (quote anything) racket will `read` it as (quote (quote anything))
-    ; So we need to guard against that (the (list 'quote anything) match to remove the quote).
-    ; Then we turn it back into a string, because the passing-div0 test
-    ; wasnt working even though they printed to look the same
-    ; so I figure make it a string, then compare! Hope this holds up...
-    (define llvm-part-input (open-input-string file-contents))
-    (define gen-ll-name (gen-header-name))
-    (define gen-exe-name (string-append "build/" (symbol->string (gensym 'genexe)) ".exe"))
-    (scm->exe llvm-part-input gen-exe-name clang++-path compiler-flags
-              libgc-obj-path libgc-include-dir gen-ll-name)
-    (define llvm-part-string
-      (string-normalize-spaces
-       (with-output-to-string (lambda () (system (format "./~a" gen-exe-name))))))
-    (define llvm-part-output (read (open-input-string llvm-part-string)))
-    (define llvm-val
-      (match llvm-part-output
-        [(list 'quote val) val]
-        [else llvm-part-output]))
-    (when (not (equal? (~a llvm-val) (~a top-level-part-value)))
-      (displayln (format "llvm:~a\ntop-level:~a" (~a llvm-val) (~a top-level-part-value))))
-    (equal? (~a llvm-val) (~a top-level-part-value))))
+; Single test creation.
 
-; TODO: move test-desugar from utils to here?
 (define (new-desugar-test test-file-path)
   (lambda ()
     (define test-contents (read (open-input-string (file->string test-file-path))))
@@ -109,11 +104,26 @@
     (with-handlers ([exn:fail? #f])
       (test-closure-convert closure-convert test-contents))))
 
+(define (test-llvm-convert llvm-convert prog)
+  (define interpreted-val (eval-proc prog))
+  (displayln `(VAL: ,interpreted-val))
+  (define llvm (llvm-convert prog))
+  (define compiled-val (compile-and-run llvm (gensym 'testllvm)))
+  (if (equal? interpreted-val compiled-val)
+      #t
+      (begin
+        (display (format (string-append "Test-llvm-convert: two different values"
+                                        " (~a and ~a) before and after closure conversion.\n")
+                         interpreted-val compiled-val))
+        #f)))
+
 (define (new-llvm-test test-file-path)
   (lambda ()
     (define test-contents (read (open-input-string (file->string test-file-path))))
-    (with-handlers ([exn:fail? #f])
+    (with-handlers ([exn:fail? (λ (ex) ((displayln ex) #f))])
       (test-llvm-convert llvm-convert test-contents))))
+
+; test suite creation
 
 (define (get-tests-at testsloc filetype)
   (map (λ (p) (string->path (string-append testsloc (path->string p))))
@@ -122,13 +132,12 @@
                        filetype))
         (directory-list testsloc))))
 
-; takes a path like /a/b/c/d.boop and returns 'd'
-(define (extract-filename p)
-  (last (string-split
-         (string-join (drop-right (string-split (path->string p) ".") 1) ".")
-         "/")))
-
 (define (make-suite prefix make-test test-list)
+  ; takes a path like /a/b/c/d.scm and returns 'd'
+  (define (extract-filename p)
+    (last (string-split
+           (string-join (drop-right (string-split (path->string p) ".") 1) ".")
+           "/")))
   (map (λ (p) (list (string-append prefix (extract-filename p))
                     (make-test p)))
        test-list))
@@ -147,8 +156,8 @@
                               (get-tests-at "tests/passes/cps/" "anf")))
 (define clo-tests (make-suite "clo-" new-clo-test
                               (get-tests-at "tests/passes/clo/" "cps")))
-(define llvm-tests (make-suite "llvm-" new-clo-test
-                               (get-tests-at "tests/passes/clo/" "proc")))
+(define llvm-tests (make-suite "llvm-" new-llvm-test
+                               (get-tests-at "tests/passes/llvm/" "proc")))
 
 (define (run-single testcase)
   (match-define (list test-name exec) testcase)

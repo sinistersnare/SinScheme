@@ -131,7 +131,8 @@
                   (prim cons ,h ,(symbol-append argsname count))])
              ,(layout-untagged aef t argsname (add1 count)))]))
      ; This is the base-name of the arg list, we append the arg number to it.
-     (define argsname (symbol-append (gensym '%%%args) '- aef '-))
+     ; use $ as a separator to avoid name mangling when converting to LLVM IR.
+     (define argsname (symbol-append (gensym '%%%args) '$ aef '$))
      ; we start with null, and then as we consume args, we add to the list.
      `(let ([,(symbol-append argsname (number->symbol 0)) '()])
         ,(layout-untagged aef (reverse aes) argsname 0))]))
@@ -198,4 +199,4 @@
        `((clo-app ,f ,arglist) ,(set f arglist) ,(list))]))
   (match-define `(,main-body ,free ,procs) (bottom-up-convert no-varargs-cps))
   (when (not (set-empty? free)) (displayln `(TOPLEVEL-FREE-VARS: ,free)))
-  `((proc (main) ,main-body) ,@procs))
+  `((proc (main ,(gensym 'mainenv) ,(gensym 'mainargs)) ,main-body) ,@procs))
