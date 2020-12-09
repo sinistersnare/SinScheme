@@ -67,8 +67,6 @@
         return fn_name(&car, &cadr, &caddr); \
     }
 
-
-
 // class SinObj {
 // public:
 //     u64* valueptr;

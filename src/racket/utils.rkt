@@ -594,14 +594,10 @@
       [else (pretty-print `(bad-cps-e ,e)) #f]))
   (and (anf-exp? e) (c-exp? e)))
 
-
-
 (define (eval-proc proc)
   (if (proc-exp? proc)
       (racket-proc-eval proc)
       (error 'malformed-proc-ir)))
-
-
 
 (define (proc-exp? e)
   (define (c-exp? e)

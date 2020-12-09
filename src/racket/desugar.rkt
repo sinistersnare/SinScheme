@@ -246,8 +246,7 @@
   (match e
     [`(,_) (desugar-aux `(%%quote #t) env)]
     [`(,_ ,e0) (desugar-aux e0 env)]
-    [`(,_ ,e0 ,rest ...) (desugar-aux
-                          `(%%if ,e0 (%%and ,@rest) (%%quote #f)) env)]))
+    [`(,_ ,e0 ,rest ...) (desugar-aux `(%%if ,e0 (%%and ,@rest) (%%quote #f)) env)]))
 
 (define (desugar-or e env)
   (match e
@@ -368,7 +367,6 @@
   (match-define `(,_ ,err) e)
   (desugar-aux `(%raise-handler ,err) env))
 
-; TODO: does this handle no else clause well? see old desugar-guard
 (define (desugar-guard e env)
   (match-define `(,_ (,gvar ,clauses ...) ,body) e)
   (match clauses
@@ -431,6 +429,7 @@
        ([promise? (lambda (p?) (and (vector? p?)
                                     (equal? (vector-length p?) '3)
                                     (equal? (vector-ref p? '0) '%%promise)))]
+        [%wind-stack '()]
         [%raise-handler
          (lambda (%%uncaught-raise-arg)
            (begin (print '"Uncaught Exception: ")
@@ -442,7 +441,6 @@
                           (let loop ([x (if (> lx ly) (drop xs (- lx ly)) xs)]
                                      [y (if (> ly lx) (drop ys (- ly lx)) ys)])
                             (if (eq? x y) x (loop (cdr x) (cdr y))))))]
-        [%wind-stack '()]
         [%do-wind
          (lambda (new-stack)
            (begin
@@ -460,13 +458,5 @@
                      (unless (eq? st tail)
                        (begin (loop (cdr st))
                               ((car (car st)))
-                              (set! %wind-stack st)))))))))]
-        [dynamic-wind (lambda (pre body post)
-                        (begin
-                          (pre)
-                          (set! %wind-stack (cons (cons pre post) %wind-stack))
-                          (let ([val (body)])
-                            (begin (set! %wind-stack (cdr %wind-stack))
-                                   (post)
-                                   val))))])
+                              (set! %wind-stack st)))))))))])
      ,e))

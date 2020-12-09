@@ -452,14 +452,14 @@ void _get_both(SinObj* lst, SinObj* car, SinObj* cdr) {
 
 SinObj* applyprim_vector(SinObj* curptr) { // apply vector
     SinObj cur = *curptr;
-    // FIXME: arbitrarily large vectors.
-    SinObj** buf = new SinObj*[256];
+    // TODO: Support for larger vectors?
+    SinObj* buf[256] = {nullptr};
     u64 i = 0;
 
     while (cur.type == Cons && i < 256) {
         SinObj car, cdr;
         _get_both(&cur, &car, &cdr);
-        buf[i++] = alloc(1);
+        buf[i] = alloc(1);
         buf[i]->type = car.type;
         buf[i]->valueptr = car.valueptr;
         cur = cdr;
@@ -477,7 +477,6 @@ SinObj* applyprim_vector(SinObj* curptr) { // apply vector
         mem[j+1].type = Other;
         mem[j+1].valueptr = reinterpret_cast<u64*>(buf[j]);
     }
-    delete [] buf;
 
     SinObj* ret = alloc(1);
     ret->valueptr = reinterpret_cast<u64*>(mem);
@@ -965,7 +964,6 @@ SinObj* applyprim_hash_45ref(SinObj* cur) { // hash-ref
         }
     }
     fatal_err("Bad Types Somewhere in hash-ref... good luck!")
-
 }
 
 SinObj* hash_ref_impl(SinObj* hash, SinObj* key, SinObj* default_obj) {

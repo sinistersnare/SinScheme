@@ -28,34 +28,32 @@
 ; giving it the compiled and interpreted results as strings (in that order).
 (define (compile-and-interpret code-str fin)
   ; get value when we interpret the input
-  (define interpreted-raw (open-input-string code-str))
-  (define interpreted-input (read-begin interpreted-raw))
-  (define interpreted-value (eval-top-level interpreted-input))
-  (define interpreted-string (~a interpreted-value))
+  (define interpreted-input (read-begin (open-input-string code-str)))
+  (define interpreted-eval (eval-top-level interpreted-input))
+  (define interpreted-value (~a interpreted-eval))
   ; get value when we compile and execute the input
   (define compiler-input (open-input-string code-str))
   (define generated-name (gensym 'generated))
   (define header-name (gen-build-file generated-name ".ll"))
-  (define exe-name (gen-build-file generated-name ".exe"))
-  ; compile program, creating exe-name
+  (define exe-name (gen-build-file generated-name ".x"))
   (scm->exe (open-input-string code-str) exe-name)
-  ; return output of program after running it.
-  (define compiled-output
+  (define compiled-value
     (string-normalize-spaces (with-output-to-string (λ () (system (format "./~a" exe-name))))))
-  (fin compiled-output interpreted-string))
+  ; call the callback with the differente values
+  (fin compiled-value interpreted-value))
 
 (define (test-llvm-convert llvm-convert prog)
   (define interpreted-val (~a (eval-proc prog)))
   (define llvm (llvm-convert prog))
-  (define exe-name (gen-build-file (gensym 'testllvm) ".exe"))
+  (define exe-name (gen-build-file (gensym 'testllvm) ".x"))
   (llvm->exe llvm exe-name)
   ; if this function gets any more complicated we should refactor and share code with the
   ; compile-and-run function.
   (define compiled-val
     (string-normalize-spaces (with-output-to-string (λ () (system (format "./~a" exe-name))))))
-  (if (equal? interpreted-val compiled-val)
-      #t
-      (begin (displayln (format "llvm:'~a'\ninterpreted:'~a'\n" compiled-val interpreted-val)) #f)))
+  (define success (equal? interpreted-val compiled-val))
+  (unless success (displayln (format "llvm:'~a'\ninterpreted:'~a'\n" compiled-val interpreted-val)))
+  success)
 
 ; Single test creation.
 
@@ -71,9 +69,8 @@
 
 (define (new-passing-test test-file-path)
   (lambda ()
-    (define file-contents (file->string test-file-path))
     (compile-and-interpret
-     file-contents
+     (file->string test-file-path)
      (λ (c i)
        ; convert the interpreted output to a string to compare.
        (define success (equal? c i))
@@ -81,7 +78,7 @@
        success))))
 
 ; TODO: move testing functions from utils.rkt to here?
-; Or maybe move the testing functionality into the tests/ folder, and this just be the interface?
+; Or maybe move the testing functionality into the tests/ folder, and this just be the API?
 (define (new-pass-test test-file-path f)
   (lambda ()
     (define test-contents (read (open-input-string (file->string test-file-path))))

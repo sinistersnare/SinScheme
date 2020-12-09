@@ -54,7 +54,7 @@
        (define aearg (gensym 'ae))
        (if (symbol? hae)
            (expand-aes fin tae (cons hae done))
-           (remove-ae-forms `(let ([,aearg ,hae]) ,(expand-aes fin tae (cons aearg done)))))]))
+           (begin #;(writeln `(hae: ,hae)) (remove-ae-forms `(let ([,aearg ,hae]) ,(expand-aes fin tae (cons aearg done))))))]))
   (match ce
     ; apply-prim removal
     [`(let ([,x (apply-prim ,op ,ae)]) ,letbody)
