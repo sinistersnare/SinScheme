@@ -351,12 +351,13 @@ SinObj* print_cons(SinObj* obj) {
 SinObj* print_vector(SinObj* obj) {
     SinObj* vector = unwrap_vector(obj, "print_vector");
     u64 len = _get_vector_length(obj);
-    printf("#("); // sad face
+    printf("#("); // looks like a sad face :P
     for (u64 i = 1; i <= len; i++) {
         if (i != 1) {
             printf(" ");
         }
-        prim_print_aux(&vector[i]);
+        SinObj* inner = reinterpret_cast<SinObj*>(vector[i].valueptr);
+        prim_print_aux(inner);
     }
     printf(")");
 
@@ -461,7 +462,7 @@ SinObj* applyprim_vector(SinObj* curptr) { // apply vector
         _get_both(&cur, &car, &cdr);
         buf[i] = alloc(1);
         buf[i]->type = car.type;
-        buf[i]->valueptr = car.valueptr;
+        buf[i++]->valueptr = car.valueptr;
         cur = cdr;
     }
     if (i == 256 && cur.type != Null) {
@@ -936,6 +937,7 @@ SinObj* prim_hash_45keys(SinObj* hash) { // hash-keys
     return map_keys(map);
 }
 
+/// hash-ref called in apply form can have the optional arg
 SinObj* applyprim_hash_45ref(SinObj* cur) { // hash-ref
     SinObj* hash = nullptr;
     SinObj* key = nullptr;
@@ -964,6 +966,14 @@ SinObj* applyprim_hash_45ref(SinObj* cur) { // hash-ref
         }
     }
     fatal_err("Bad Types Somewhere in hash-ref... good luck!")
+}
+
+
+/// hash-ref called in regular untagged form will not have the optional arg
+/// as desugar checks if the key exists first.
+/// So we should always have the key here.
+SinObj* prim_hash_45ref(SinObj* hash, SinObj* key) {
+    return hash_ref_impl(hash, key, nullptr);
 }
 
 SinObj* hash_ref_impl(SinObj* hash, SinObj* key, SinObj* default_obj) {

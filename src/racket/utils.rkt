@@ -247,8 +247,10 @@
     [`(call/cc ,(? (rec/with env))) #t]
     [(? var? x) (if (set-member? env x) #t #f)]
     [`(quote ,(? datum?)) #t]
-    [`(prim ,(? prim?) ,(? (rec/with env)) ...) #t]
-    [`(apply-prim ,(? prim?) ,(? (rec/with env))) #t]
+    [`(prim ,op ,(? (rec/with env)) ...)
+     (if (prim? op) #t (begin (displayln `(op ,op doesnt-exist)) #f))]
+    [`(apply-prim ,op ,(? (rec/with env)))
+     (if (prim? op) #t (begin (displayln `(op ,op doesnt-exist)) #f))]
     [`(,(? (rec/with env)) ,(? (rec/with env)) ...) #t]
     [else (pretty-print `(bad-ir ,e ,env)) #f]))
 
@@ -306,8 +308,6 @@
        (T `((lambda el (apply-prim vector el)) ,@es))]
       [`(prim hash ,es ...)
        (T `((lambda el (apply-prim hash el)) ,@es))]
-      [`(prim hash-ref ,es ...) ; 'vararg' in the sense that there is an optional argument.
-       (T `((lambda el (apply-prim hash-ref el)) ,@es))]
       [`(prim foldl ,e0 ,e1 ,e2)
        `(%foldl1 ,@(map T (list e0 e1 e2)))]
       [`(prim foldr ,e0 ,e1 ,e2)

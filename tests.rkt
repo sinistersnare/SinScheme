@@ -63,9 +63,13 @@
     (define file-contents (file->string test-file-path))
     (define guarded-code `(guard (_ [',didnt-fail-tag #t] [else #f])
                                  ,file-contents (raise ',didnt-fail-tag)))
-    (define guarded-string (symbol->string guarded-code))
-    (compile-and-interpret guarded-string
-                           (λ (c i) (displayln `(TODO: got ,c and ,i)) #f))))
+    (define guarded-string (~s guarded-code))
+    (compile-and-interpret
+     guarded-string
+     (λ (c i)
+       (define success (and (equal? "#t" c) (equal? "#t" i)))
+       (unless success (displayln (format "llvm:~a\ntop-level:~a" c i)))
+       success))))
 
 (define (new-passing-test test-file-path)
   (lambda ()

@@ -133,7 +133,7 @@
     ; simple application, we desugar each part in the current env.
     [`(,es ...)
      (map (λ (e) (desugar-aux e env)) es)]
-    [_ (raise `(bad-expression: ,e))]))
+    [_ (error `(bad-expression: ,e))]))
 
 ; the starting env for desugaring. This is needed
 ; to allow shadowing of primitives and special forms.
@@ -412,30 +412,49 @@
   (match-define `(,_ ,letkvar ,body) e)
   (desugar-aux `(%%call/cc (%%lambda (,letkvar) ,body)) env))
 
-; These two are not part of the source language
+; modify some prims so they will `raise` on exceptional circumstances
+; see that section of code under the 'wrap' function for more info.
+(define (protected-prims)
+  (hash '/ (cons protect-prim-/ protect-applprim-/)
+        'hash-ref (cons protect-prim-hash-ref protect-applyprim-hash-ref)
+        'vector-ref (cons protect-prim-vector-ref protect-applyprim-vector-ref)
+        'vector-set! (cons protect-prim-vector-set! protect-applyprim-vector-set!)))
+
+; These two are not technically part of the source language
+; but they are added to it and then these are called.
 ; but adding them makes life easier! No harm done :)
 (define (desugar-prim e env)
   (match-define `(,_ ,(? prim? op) ,es ...) e)
-  `(prim ,op ,@(map (λ (e) (desugar-aux e env)) es)))
+  (define protected? (hash-ref (protected-prims) op #f))
+  (match protected?
+    [(cons (? procedure? p) _) (p es env)]
+    ; other prims need no protections.
+    [#f `(prim ,op ,@(map (λ (e) (desugar-aux e env)) es))]))
 
 (define (desugar-apply-prim e env)
   (match-define `(,_ ,(? prim? op) ,elist) e)
-  `(apply-prim ,op ,(desugar-aux elist env)))
+  (define protected? (hash-ref (protected-prims) op #f))
+  (match protected?
+    [(cons _ (? procedure? p)) (p elist env)]
+    ; other prims need no protections.
+    [#f `(apply-prim ,op ,(desugar-aux elist env))]))
 
 ; Wraps an expression with an initial library of items
 ; these are low level things, used by the special forms.
 (define (wrap e)
   `(let*
-       ([promise? (lambda (p?) (and (vector? p?)
-                                    (equal? (vector-length p?) '3)
-                                    (equal? (vector-ref p? '0) '%%promise)))]
-        [%wind-stack '()]
-        [%raise-handler
+       ; raise handler goes first so we have it defined
+       ; if vector-ref goes bad in `promise?`.
+       ([%raise-handler
          (lambda (%%uncaught-raise-arg)
            (begin (print '"Uncaught Exception: ")
                   (print %%uncaught-raise-arg)
                   (print '"\n")
                   (halt (void))))]
+        [promise? (lambda (p?) (and (vector? p?)
+                                    (equal? (vector-length p?) '3)
+                                    (equal? (vector-ref p? '0) '%%promise)))]
+        [%wind-stack '()]
         [%common-tail (lambda (xs ys)
                         (let ([lx (length xs)] [ly (length ys)])
                           (let loop ([x (if (> lx ly) (drop xs (- lx ly)) xs)]
@@ -460,3 +479,137 @@
                               ((car (car st)))
                               (set! %wind-stack st)))))))))])
      ,e))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; This last bit of code is code that wraps prims with 'protection' code
+; That is, if it finds an exceptional circumstance, it will raise an exception.
+; For example, division by 0, incorrect arg counts, etc.
+; this does not cover everything of course, but that would be nice!
+; TODO: adding type checks, covering more prims, etc.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+
+(define (generate-bindings es env fin)
+  (define bindings '())
+  (define symnames
+    (map (λ (e) (if (symbol? e)
+                    (desugar-aux e env) ; still need to process it (in this case just prefix)
+                    (let* ([bnd (gensym 'protectbnd)]
+                           [_ (set! bindings (cons `(,bnd ,(desugar-aux e env)) bindings))])
+                      bnd)))
+         es))
+  (if (empty? bindings)
+      (fin symnames)
+      `(let ,bindings ,(fin symnames))))
+
+(define (protect-prim-/ es env)
+  (match es
+    ['() (desugar-aux `(%%raise (%%quote /-takes-at-least-1-arg!)) env)]
+    [`(,one)
+     (define bnd (gensym 'divbnd))
+     (if (symbol? one) ; dont generate a let if we dont need one.
+         `(if (prim eq? ,one '0)
+              ,(desugar-aux '(%%raise (%%quote division-by-0)) env)
+              (prim / '1 ,one))
+         `(let ([,bnd ,one]) (if (prim eq? ,bnd '0)
+                                 ,(desugar-aux '(%%raise (%%quote division-by-0)) env)
+                                 (prim / '1 ,bnd))))]
+    ; in this case (/ e e ...) the first can be 0, but not the rest.
+    [`(,head ,restes ...)
+     (define rest-bnds (map (λ (_) (gensym 'divbnd)) restes))
+     (define let-bnds (map (λ (b e) `(,b ,(desugar-aux e env))) rest-bnds restes))
+     (define ors (map (λ (b) `(%%prim eq? ,b '0)) rest-bnds))
+     ; turns (/ 1 2 3 4) into (/ (/ (/ 1 2) 3) 4)
+     (define divs (foldl (λ (next built) `(prim / ,built ,next)) head rest-bnds))
+     `(let ,let-bnds
+        (if ,(desugar-aux `(or ,@ors) env)
+            ,(desugar-aux '(%%raise (%%quote division-by-0)) env)
+            ,divs))]))
+
+(define (protect-prim-hash-ref es env)
+  (match es
+    ; these 2 _could_ be compile errors... hmmmmm
+    ['() (desugar-aux '(%%raise (%%quote hash-ref-takes-arguments)) env)]
+    [`(,_) (desugar-aux '(%%raise (%%quote hash-ref-takes-more-than-1-argument)) env)]
+    [`(,h ,k)
+     (generate-bindings
+      (list h k) env
+      (λ (bs)
+        (match-define `(,hbnd ,kbnd) bs)
+        `(if (prim hash-has-key? ,hbnd ,kbnd)
+             (prim hash-ref ,hbnd ,kbnd)
+             ,(desugar-aux '(%%raise (%%quote hash-key-doesnt-exist)) env))))]
+    [`(,h ,k ,d)
+     (generate-bindings
+      (list h k d) env
+      (λ (bs)
+        (match-define `(,hbnd ,kbnd ,dbnd) bs)
+        `(if (prim hash-has-key? ,hbnd ,kbnd)
+             (prim hash-ref ,hbnd ,kbnd)
+             ,dbnd)))]
+    [_ (desugar-aux '(%%raise (%%quote hash-ref-too-many-arguments)) env)]))
+
+(define (protect-prim-vector-ref es env)
+  (match es
+    [`(,v ,n)
+     (generate-bindings
+      (list v n) env
+      (λ (bs)
+        (match-define `(,vbnd ,nbnd) bs)
+        `(if (prim > (prim + '1 ,nbnd) (prim vector-length ,vbnd))
+             ,(desugar-aux '(%%raise (%%quote vector-out-of-bounds)) env)
+             (prim vector-ref ,vbnd ,nbnd))))]
+    [_ (desugar-aux '(%%raise (%%quote vector-ref-takes-2-arguments)) env)]))
+
+(define (protect-prim-vector-set! es env)
+  (match es
+    [`(,v ,n ,x)
+     (generate-bindings
+      (list v n x) env
+      (λ (bs)
+        (match-define `(,vbnd ,nbnd ,xbnd) bs)
+        `(if (prim > (prim + '1 ,nbnd) (prim vector-length ,vbnd))
+             ,(desugar-aux '(%%raise (%%quote vector-out-of-bounds)) env)
+             (prim vector-set! ,vbnd ,nbnd ,xbnd))))]
+    [_ (desugar-aux '(%%raise (%%quote vector-set!-takes-3-arguments)) env)]))
+
+; used to get the args of a list to call the prim itself
+(define (extract-and-call primname listname argcount)
+  (define (wrap-cdrs num)
+    (if (= num 0)
+        listname
+        `(%%prim cdr ,(wrap-cdrs (- num 1)))))
+  (define bindings
+    (map (λ (i) `(,(gensym 'parg) (%%prim car ,(wrap-cdrs i))))
+         (range argcount)))
+  `(%%if (%%prim = (%%prim length ,listname) ',argcount)
+         (%%let ,bindings
+                (%%prim ,primname ,@(map car bindings)))
+         (%%raise (%%quote ,(symbol-append 'incorrect-arg-count-for- primname)))))
+
+; elist is a symbol in all of these, as its fresh out of the eta-expansion for apply-prim.
+
+(define (protect-applprim-/ elist env)
+  ; TODO! Need to write some input-grammar code that checks the whole (cdr list) for 0
+  ; probably will have to pull out the Y-Combinator...?
+  ; once done, the knowledge will make it easier to do other protections.
+  `(apply-prim / ,(desugar-aux elist env)))
+
+(define (protect-applyprim-hash-ref elist env)
+  (define arg0 (gensym 'arg0))
+  (define arg1 (gensym 'arg1))
+  (desugar-aux
+   `(%%if (%%prim = (%%prim length ,elist) '2)
+          (%%let ([,arg0 (%%prim car ,elist)] [,arg1 (%%prim car (cdr ,elist))])
+                 (%%prim hash-ref ,arg0 ,arg1))
+          ,(extract-and-call 'hash-ref elist 3))
+   env))
+
+(define (protect-applyprim-vector-ref elist env)
+  (desugar-aux (extract-and-call 'vector-ref elist 2) env))
+(define (protect-applyprim-vector-set! elist env)
+  (desugar-aux (extract-and-call 'vector-set! elist 3) env))

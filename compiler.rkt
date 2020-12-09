@@ -133,10 +133,3 @@
   (system (format "~a ~a ~a ~a ~a ~a"
                   clang++-path compiler-flags combined-ir-path libgc-obj-path "-o" exe-name))
   (close-output-port out-combined-file))
-
-(define code '(guard (x [else "GOOD"]) (/ 1 2 3 0)))
-(define proc (~> code top-level desugar assignment-convert
-                 alphatize anf-convert cps-convert closure-convert))
-(define f (open-output-file "/home/sinistersnare/code/SinScheme/tests/passes/llvm/div-passes-disp.proc"
-                            #:mode 'text #:exists 'replace))
-(pretty-display proc f)
