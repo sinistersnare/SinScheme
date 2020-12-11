@@ -1,3 +1,5 @@
+; the code from the passing-div0 test
+; that has been run thru everything up to here
 ((proc
   (main mainenv17217 mainargs17218)
   (let ((ae2076 (make-closure clo17215)))
