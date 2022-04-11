@@ -75,7 +75,7 @@
 
 ;; End actual LLVM emitter code.
 
-(define clang++-path "clang++") ; let's hope its in the PATH lol
+(define clang++-path (path->string (find-executable-path "clang++"))) ; let's hope its in the PATH lol
 
 (define (gen-build-file name extension)
   (unless (directory-exists? "build") (make-directory "build"))
@@ -100,13 +100,18 @@
 ; separates the runtime header and the user code
 (define ir-separator "\n\n;;;;;;;End Runtime Header;;;;;;;\n\n")
 
-; gets the runtime-half of the LLVM IR as a string.
-(define (get-runtime-header)
+; generates a runtime.ll file, and returns the file name/location of it.
+(define (get-runtime-file)
   (define runtime-header-name (gen-build-file (gensym 'compiled_runtime) ".ll"))
   (system (format "~a ~a ~a -I~s -S -emit-llvm -o ~a"
                   clang++-path compiler-flags header-location
                   libgc-include-dir runtime-header-name))
-  (file->string runtime-header-name))
+  runtime-header-name)
+
+; gets the runtime-half of the LLVM IR as a string.
+; TODO: should delete this
+(define (get-runtime-header)
+  (file->string (get-runtime-file)))
 
 ; compile the given scheme to a full exe named `exe-name`.
 ; Takes an input-port that will be `read-begin`d into a scheme symbol,
@@ -129,11 +134,14 @@
 ; compile the given user-half of LLVM to a full exe named `exe-name`.
 ; Takes 2 strings:, the user-half LLVM, and the name of the resulting executable.
 ; Returns void.
+
 (define (llvm->exe user-llvm exe-name)
-  (define full-ir (string-append (get-runtime-header) ir-separator user-llvm))
   (define combined-ir-path (gen-build-file (gensym 'generated_combined) ".ll"))
   (define out-combined-file (open-output-file combined-ir-path #:mode 'text #:exists 'replace))
-  (display full-ir out-combined-file)
+  (display (get-runtime-header) out-combined-file)
+  (display ir-separator out-combined-file)
+  (display user-llvm out-combined-file)
+  (flush-output out-combined-file)
   (system (format "~a ~a ~a ~a ~a ~a"
                   clang++-path compiler-flags combined-ir-path libgc-obj-path "-o" exe-name))
   (close-output-port out-combined-file))

@@ -30,7 +30,7 @@ set the locations correctly as noted below.
 
 ### Linux ###
 
-I installed BoehmGC on linux from [their page](https://www.hboehm.info/gc/simple_example.html),
+I installed BoehmGC on linux from [their page](https://www.hboehm.info/gc/simple_example.html) (downloading the .tar.gz from their GitHub page),
 but my configure command was:
 
 ```bash

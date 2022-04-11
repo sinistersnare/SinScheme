@@ -42,6 +42,7 @@
   ; call the callback with the differente values
   (fin compiled-value interpreted-value))
 
+; TODO: would be nice to combine this with compile-and-interpret somehow.
 (define (test-llvm-convert llvm-convert prog)
   (define interpreted-val (~a (eval-proc prog)))
   (define llvm (llvm-convert prog))
