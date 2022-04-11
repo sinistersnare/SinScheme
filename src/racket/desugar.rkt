@@ -94,6 +94,7 @@
 ;; TODO support vector literals (see old bottom of old desugar-aux)
 
 (define (desugar e)
+  #;(pretty-display e)
   (desugar-aux (wrap e) (initial-env)))
 (define (d e) (desugar-aux e (initial-env))) ; helper
 
@@ -161,13 +162,13 @@
          'prim (t desugar-prim) 'apply-prim (t desugar-apply-prim))]
        ; this map adds a set of symbols to base that are 'override safe'
        ; we prefix each key of base with %%. If a user makes a variable like
-       ; %%begin then its UNDEFINED BEHAVIOR. %% variables are reserved by
+       ; %%begin then it's UNDEFINED BEHAVIOR. %% variables are reserved by
        ; the compiler.
        ; if no shadowing occurs these mappings should all be equivalent
        ; to the non %% ones.
        [shadow-safe
-        (foldl (λ (k v res) (hash-set res (symbol-append '%% k) v))
-               base (hash-keys base) (hash-values base))]
+        (foldl (λ (k res) (hash-set res (symbol-append '%% k) (hash-ref base k)))
+               base (hash-keys base))]
        ; this map adds primitives so they can be shadowed
        ; it gives them a marker value because their transformation
        ; is all the same, we only need the key and the knowledge that they

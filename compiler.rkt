@@ -27,24 +27,28 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; HERE ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+;; SET THIS TO LIBGC VERSION PLZ
+
+(define libgc-version "8.0.6")
+
 ;; SET THESE TO YOUR LIBGC LOCATIONS PLZ
 
 ; Windows not 'not' supported! It can be, I just dont know where the paths would be.
 ; LibGC works on windows alledgedly, so if you get this working, lemme know!
 
-(define macos-base (build-path "/" "usr" "local" "Cellar" "bdw-gc" "8.0.4"))
+(define macos-base (build-path "/" "usr" "local" "Cellar" "bdw-gc" libgc-version))
 (define unix-base (build-path "/" "usr" "local"))
 
 (define libgc-include-dir
   (match (system-type 'os)
-    ['macosx (path->string (build-path macos-base "8.0.4" "include"))]
+    ['macosx (path->string (build-path macos-base libgc-version "include"))]
     ['unix (path->string (build-path unix-base "include"))]
     ['windows (raise 'windows-not-supported-make-a-PR!)]
     [else (raise 'unknown-os-type)]))
 
 (define libgc-obj-path
   (match (system-type 'os)
-    ['macosx (path->string (build-path macos-base "8.0.4" "lib" "libgc.a"))]
+    ['macosx (path->string (build-path macos-base libgc-version "lib" "libgc.a"))]
     ['unix (path->string (build-path unix-base "lib" "libgc.a"))]
     ['windows (raise 'windows-not-supported-make-a-PR!)]
     [else (raise `('unsupported-os-type ,else))]))

@@ -1,5 +1,5 @@
 (define x 5)
 (define (displayln v) (display v) (display "\n"))
-(println "Hello, World!")
+(displayln "Hello, World!")
 (* (* 5 5) x)
 
