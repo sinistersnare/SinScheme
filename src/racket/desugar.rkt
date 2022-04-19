@@ -59,7 +59,7 @@
 ; This includes things like `cond`, `when`, and `if` which can all be
 ; desugared into various usages of `if`.
 ; The result is a much smaller grammar, which makes more complicated
-; compiler passes easier to implement.
+; compiler phases easier to implement.
 
 ;;;;;;;;;;;;;;;; UTILITY ITEMS ;;;;;;;;;;;;;;;;
 
@@ -78,7 +78,7 @@
 (struct o (v) #:transparent)
 
 ; we prefix symbols when adding them to the env to ensure
-; that they do not shadow special forms and prims in future passes.
+; that they do not shadow special forms and prims in future phases.
 ; TODO: in the original solution, they didnt add the $ if it was already there
 ;       it didnt seem necessary so i removed that. Is it needed??
 (define (prefix x) (symbol-append '$ x))

@@ -118,17 +118,17 @@
 (define failing-tests (make-suite "failing-" new-failing-test
                                   (get-tests-at "tests/failing/" "sinscm")))
 (define desugar-tests (make-suite "desugar-" new-desugar-test
-                                  (get-tests-at "tests/passes/desugar/" "scm")))
+                                  (get-tests-at "tests/phases/desugar/" "scm")))
 (define alphatize-tests (make-suite "alpha-" new-alphatize-test
-                                    (get-tests-at "tests/passes/alphatize/" "ir")))
+                                    (get-tests-at "tests/phases/alphatize/" "ir")))
 (define anf-tests (make-suite "anf-" new-anf-test
-                              (get-tests-at "tests/passes/anf/" "alpha")))
+                              (get-tests-at "tests/phases/anf/" "alpha")))
 (define cps-tests (make-suite "cps-" new-cps-test
-                              (get-tests-at "tests/passes/cps/" "anf")))
+                              (get-tests-at "tests/phases/cps/" "anf")))
 (define clo-tests (make-suite "clo-" new-clo-test
-                              (get-tests-at "tests/passes/clo/" "cps")))
+                              (get-tests-at "tests/phases/clo/" "cps")))
 (define llvm-tests (make-suite "llvm-" new-llvm-test
-                               (get-tests-at "tests/passes/llvm/" "proc")))
+                               (get-tests-at "tests/phases/llvm/" "proc")))
 
 (define (run-single testcase)
   (match-define (list test-name exec) testcase)

@@ -130,7 +130,7 @@ It was a really fun class, you should take take a look at it!
 	* Will require a Rust GC implementation.... FUN!
 	* And possibly an extra step to integrate `cargo` instead of shelling out to clang++ in racket.
 * Rewrite top-level ... ugh.
-* Alter the `passes` test infra to do what it does now + compile it down to exe and run that too. There are a lot of tests for desugar that I would like to run on LLVM to see what happens.
+* Alter the `phases` test infra to do what it does now + compile it down to exe and run that too. There are a lot of tests for desugar that I would like to run on LLVM to see what happens.
 
 ## License ##
 

@@ -1,10 +1,12 @@
 # Compiler Layout #
 
+## TODO: layout is different with CPS!! ##
+
 The SinScheme compiler goes through many phases of transformations,
 which are detailed here.
 
 There is a provided `compiler.rkt`
-that runs all of the following passes in order.
+that runs all of the following phases in order.
 Taking in SinScheme code, and returning LLVM IR.
 
 1. Top-level Transformations (`top-level.rkt`) (compiles quasiquotes, pattern matching, `begin`)
