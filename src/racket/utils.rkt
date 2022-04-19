@@ -1,48 +1,19 @@
 #lang racket
 
-; Written by Thomas Gilray and Javran Cheng
+; Originally Written by Thomas Gilray and Javran Cheng
+; heavily modified since then, thanks Tom & Javran!
 
-(provide prim? reserved? prims->list
-         symbol-append
-         c-name
-         prim-name
-         applyprim-name
-         datum?
-         read-begin
-         test-top-level
-         test-desugar
-         eval-top-level
-         eval-scheme
-         eval-ir
-         eval-proc
-         simplify-ir
-         scheme-exp?
-         ir-exp?
-         alphatized-exp?
-         test-alphatize
-         anf-exp?
-         test-anf-convert
-         cps-exp?
-         test-cps-convert
-         proc-exp?
-         test-closure-convert)
+(provide prim? reserved? prims-list symbol-append c-name prim-name applyprim-name
+         c-hex-encode encoded-str-length datum? read-begin
+         test-top-level test-desugar test-alphatize test-anf-convert
+         test-cps-convert test-closure-convert
+         eval-top-level eval-scheme eval-ir eval-proc
+         scheme-exp? ir-exp? alphatized-exp? anf-exp? cps-exp? proc-exp?)
 
 (require (only-in racket/format ~a))
 
-(define project-path (current-directory))
-(define libgc-path
-  (path->string
-   (build-path project-path "lib" "local" "lib" "libgc.a")))
-(define gc-include-path
-  (path->string
-   (build-path project-path "lib" "local" "include")))
-
-(define clang++-path
-  (let ([clang++-path-submit-server "/opt/llvm-3.9.0/bin/clang++"])
-    (if (file-exists? clang++-path-submit-server)
-        clang++-path-submit-server
-        "clang++")))
-
+; many of these prims are expanded by hand in the `simplify-ir`
+; pass in `desugar.rkt`. The rest are implemented in runtime.cpp
 (define prims-list
   '(= > < <= >= + - * / promise?
       cons? null? cons car cdr list first second third fourth fifth
@@ -52,17 +23,13 @@
       set-rest set-remove hash hash-ref hash-set hash-count hash-keys
       hash-has-key? hash? list? void? procedure? number? integer? boolean?
       error void print println display write exit halt eq? eqv? equal? not))
-(define (prims->list) prims-list)
-(define (prim? op)
-  (if (member op prims-list)
-      #t
-      #f))
+
+(define (prim? op) (member op prims-list))
 
 (define (symbol-append . ss)
   (match ss
     ['() '||]
     [`(,one ,rest ...) (string->symbol (string-append (~a one) (~a (apply symbol-append rest))))]))
-
 
 (define (c-name s)
   (define ok-set
@@ -79,6 +46,20 @@
   (string-append "prim_" (c-name op)))
 (define (applyprim-name op)
   (string-append "applyprim_" (c-name op)))
+
+(define (c-hex-encode s-unknown)
+  ; Hex encodes a string and adds a null terminator.
+  ; Used for encoding global strings and symbols.
+  (define s (if (string? s-unknown) s-unknown (symbol->string s-unknown)))
+  (string-append (string-join (map (lambda (c)
+                                     (format "\\~a"
+                                             (~r (char->integer c)
+                                                 #:base '(up 16) #:min-width 2 #:pad-string "0")))
+                                   (string->list s)) "") "\\00"))
+
+; because a `c-encode`d string is hex-encoded,
+; we can just split on `\\` and get the length of that list.
+(define (encoded-str-length s) (length (string-split s "\\")))
 
 (define reserved-list '(letrec letrec* let let* if and or set! quote begin
                          cond case when unless delay force dynamic-wind
@@ -211,7 +192,7 @@
 
 (define (test-desugar desugar scheme-prog)
   (define val1 (eval-scheme scheme-prog))
-  (define ir-e (simplify-ir (desugar scheme-prog)))
+  (define ir-e (desugar scheme-prog))
   (define val2 (eval-ir ir-e))
   (if (equal? val1 val2)
       #t
@@ -254,209 +235,6 @@
     [`(,(? (rec/with env)) ,(? (rec/with env)) ...) #t]
     [else (pretty-print `(bad-ir ,e ,env)) #f]))
 
-; Applies some small optimizations on the IR-language (post-desugar)
-; makes some prims vararg so they can be compiled more easily
-(define (simplify-ir ir-e)
-  (define (T e)
-    (match e
-      [`(let ([,xs ,es] ...) ,e0)
-       `(let ,(map list xs (map T es)) ,(T e0))]
-      [`(lambda ,xs ,e0)
-       `(lambda ,xs ,(T e0))]
-      [`(apply ,e0 ,e1)
-       `(apply ,(T e0) ,(T e1))]
-      [`(if ,e0 ,e1 ,e2)
-       `(if ,(T e0) ,(T e1) ,(T e2))]
-      [`(set! ,x ,e0)
-       `(set! ,x ,(T e0))]
-      [`(call/cc ,e0)
-       `(call/cc ,(T e0))]
-      [(? symbol? x) x]
-      [`(quote ,(? symbol? x))
-       `(quote ,x)]
-      [`(quote #(,ds ...))
-       (T `(prim vector ,@(map (lambda (d) `',d) ds)))]
-      [`(quote ,(? list? lst))
-       (T `(prim list ,@(map (lambda (d) `',d) lst)))]
-      [`(quote ,other)
-       `(quote ,other)]
-      [`(prim +)
-       ''0]
-      [`(prim + ,e0)
-       (T e0)]
-      [`(prim + ,e0 ,e1 ,e2 ,es ...)
-       (T `(prim + ,e0 (prim + ,e1 ,e2 ,@es)))]
-      [`(prim *)
-       ''1]
-      [`(prim * ,e0)
-       (T e0)]
-      [`(prim * ,e0 ,e1 ,e2 ,es ...)
-       (T `(prim * ,e0 (prim * ,e1 ,e2 ,@es)))]
-      [`(prim - ,e0) (T `(prim - '0 ,e0))]
-      [`(prim - ,e0 ,es ...)
-       #:when (> (length es) 1)
-       (T `(prim - (prim - ,e0 ,@(drop-right es 1)) ,(last es)))]
-      [`(prim / ,e0 ,e1)
-       `(prim / ,(T e0) ,(T e1))]
-      ; Remove list, vector->apply vector, map foldl, foldr, drop, memv, >, >=, ...
-      [`(prim list ,es ...) ; optimize
-       `((lambda lst lst) ,@(map T es))]
-      [`(apply-prim list ,e0)
-       (T e0)]
-      ; eta-expand vararg prims.
-      [`(prim vector ,es ...)
-       (T `((lambda el (apply-prim vector el)) ,@es))]
-      [`(prim hash ,es ...)
-       (T `((lambda el (apply-prim hash el)) ,@es))]
-      [`(prim foldl ,e0 ,e1 ,e2)
-       `(%foldl1 ,@(map T (list e0 e1 e2)))]
-      [`(prim foldr ,e0 ,e1 ,e2)
-       `(%foldr1 ,@(map T (list e0 e1 e2)))]
-      [`(prim map ,e0 ,e1)
-       `(%map1 ,@(map T (list e0 e1)))]
-      ; this function adds some primitives to the env so they need not be implemented by the runtime.
-      ; so remove them from here if we see them.
-      [`(prim ,op ,es ...)
-       #:when (member op '(drop memv / > >= list? drop-right length append last
-                                map foldl foldr first second third fourth))
-       `(,(string->symbol (string-append "%" (symbol->string op))) ,@(map T es))]
-      [`(apply-prim ,op ,e0)
-       #:when (member op '(drop memv / > >= list? drop-right length append last
-                                map foldl foldr first second third fourth))
-       `(apply ,(string->symbol (string-append "%" (symbol->string op))) ,(T e0))]
-
-      [`(prim ,op ,es ...)
-       `(prim ,op ,@(map T es))]
-      [`(apply-prim ,op ,e0)
-       `(apply-prim ,op ,(T e0))]
-      [`(,ef ,es ...)
-       `(,(T ef) ,@(map T es))]))
-  `(let ([Ycmb
-          ((lambda (yu) (yu yu))
-           (lambda (y) (lambda (f) (f (lambda args (apply ((y y) f) args))))))])
-     (let ([%foldr1
-            (Ycmb
-             (lambda (%foldr1)
-               (lambda (f acc lst)
-                 (if (prim null? lst)
-                     acc
-                     (f (prim car lst)
-                        (%foldr1 f acc (prim cdr lst)))))))]
-           [%map1 (Ycmb (lambda (%map) (lambda (f lst) (if (prim null? lst)
-                                                           '()
-                                                           (prim cons (f (prim car lst))
-                                                                 (%map f (prim cdr lst)))))))]
-           [%take
-            (Ycmb (lambda (%take)
-                    (lambda (lst n) (if (prim = n '0) '()
-                                        (if (prim null? lst) '()
-                                            (prim cons (prim car lst)
-                                                  (%take (prim cdr lst) (prim - n '1))))))))]
-           [%length (Ycmb (lambda (%length)
-                            (lambda (lst) (if (prim null? lst) '0
-                                              (prim + '1 (%length (prim cdr lst)))))))]
-           [%foldl1
-            (Ycmb
-             (lambda (%foldl1)
-               (lambda (f acc lst)
-                 (if (prim null? lst)
-                     acc
-                     (%foldl1 f (f (prim car lst) acc) (prim cdr lst))))))])
-       (let ([%last (lambda (lst) (%foldl1 (lambda (x y) x) '() lst))]
-             [%drop-right (lambda (lst n) (%take lst (prim - (%length lst) n)))]
-             [%foldr
-              (Ycmb
-               (lambda (%foldr)
-                 (lambda args
-                   (let ([f (prim car args)]
-                         [acc (prim car (prim cdr args))]
-                         [lsts (prim cdr (prim cdr args))])
-                     (if (%foldr1 (lambda (lst b) (if b b (prim null? lst))) '#f lsts)
-                         acc
-                         (let ([lsts+ (%map1 (lambda (x) (prim cdr x)) lsts)]
-                               [vs (%map1 (lambda (x) (prim car x)) lsts)])
-                           (apply f (%foldr1 (lambda (a b) (prim cons a b))
-                                             (prim cons
-                                                   (apply %foldr (prim cons f (prim cons acc lsts+)))
-                                                   '())
-                                             vs))))))))])
-         (let ([%map1
-                (lambda (f lst)
-                  (%foldr1 (lambda (v r) (prim cons (f v) r)) '() lst))]
-               [%map
-                (lambda args
-                  (let ([f (prim car args)]
-                        [lsts (prim cdr args)])
-                    (apply %foldr (prim cons
-                                        (lambda fargs
-                                          (prim cons
-                                                (apply f (%drop-right fargs '1))
-                                                (%last fargs)))
-                                        (prim cons '() lsts)))))])
-           (let ([%foldl
-                  (Ycmb
-                   (lambda (%foldl)
-                     (lambda args
-                       (let ([f (prim car args)]
-                             [acc (prim car (prim cdr args))]
-                             [lsts (prim cdr (prim cdr args))])
-                         (if (%foldr1 (lambda (lst b) (if b b (prim null? lst))) '#f lsts)
-                             acc
-                             (let ([lsts+ (%map1 (lambda (x) (prim cdr x)) lsts)]
-                                   [vs (%map1 (lambda (x) (prim car x)) lsts)])
-                               (let ([acc+ (apply f (%foldr (lambda (a b) (prim cons a b))
-                                                            (prim cons acc '()) vs))])
-                                 (apply %foldl (prim cons f (prim cons acc+ lsts+))))))))))]
-                 [%>
-                  (lambda (a b) ; we'll assume comparitors are binary, but we could tweak this here
-                    (prim not (prim <= a b)))]
-                 [%>=
-                  (lambda (a b)
-                    (prim not (prim < a b)))]
-                 [%append (let ([%append '()])
-                            (let ([_0 (set! %append (lambda (ls0 ls1)
-                                                      (if (prim null? ls0)
-                                                          ls1
-                                                          (prim cons (prim car ls0)
-                                                                (%append (prim cdr ls0) ls1)))))])
-                              %append))]
-                 [%list?
-                  (lambda (a)
-                    (let ([cc (call/cc (lambda (k) k))])
-                      (if (prim null? a)
-                          '#t
-                          (if (prim cons? a)
-                              (let ([b (prim cdr a)])
-                                (let ([_0 (set! a (prim cdr a))])
-                                  (cc cc)))
-                              '#f))))]
-                 [%drop
-                  (lambda (lst n)
-                    (let ([cc (call/cc (lambda (u) (u u)))])
-                      (if (prim = '0 n)
-                          lst
-                          (let ([_0 (set! lst (prim cdr lst))]
-                                [_1 (set! n (prim - n '1))])
-                            (cc cc)))))]
-                 [%memv
-                  (lambda (v lst)
-                    (let ([cc (call/cc (lambda (u) (u u)))])
-                      (if (prim null? lst)
-                          '#f
-                          (if (prim eqv? (prim car lst) v)
-                              lst
-                              (let ([_0 (set! lst (prim cdr lst))])
-                                (cc cc))))))]
-                 [%/ (lambda args (if (prim null? args) '1
-                                      (if (prim null? (prim cdr args))
-                                          (prim car args)
-                                          (%foldl1 (lambda (n v) (prim / v n))
-                                                   (prim car args) (prim cdr args)))))]
-                 [%first (lambda (x) (prim car x))]
-                 [%second (lambda (x) (prim car (prim cdr x)))]
-                 [%third (lambda (x) (prim car (prim cdr (prim cdr x))))]
-                 [%fourth (lambda (x) (prim car (prim cdr (prim cdr (prim cdr x)))))])
-             ,(T ir-e)))))))
 
 
 (define (eval-ir e)
@@ -637,9 +415,9 @@
               #:when (not (equal? pat0 'else))
               (rewrite-match `(match ,e0 ,@clauses (,pat0 ,@es) (else (raise "no match"))))]
       [`(,e0 . ,es) (cons (rewrite-match e0) (rewrite-match es))]
-      [else e]))
+      [_ e]))
   (with-handlers ([exn:fail? (lambda (x) (pretty-print "Evaluation failed:")
-                               (pretty-print x)
+                               (pretty-display x)
                                (pretty-print e)
                                (error 'eval-fail))])
     (parameterize ([current-namespace (make-base-namespace)])
@@ -648,9 +426,11 @@
       (namespace-require 'srfi/34)
       (eval (compile
              `(call/cc (lambda (exit+)
-                         (define (halt x) (exit+ x))
+                         (define halt exit)
                          (define (prim op . args) (apply op args))
                          (define (apply-prim op args) (apply op args))
+                         (define (drop xs n)
+                           (pretty-display `(calling-drop ,args)) (drop xs n))
                          ,(rewrite-match e))))))))
 
 

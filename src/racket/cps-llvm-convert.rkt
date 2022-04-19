@@ -13,7 +13,7 @@
 ;     | (let ([x (make-closure x x ...)]) e)
 ;     | (let ([x (env-ref x nat)]) e)
 ;     | (let ([x (quote dat)]) e)
-;     | (clo-app x x ...)
+;     | (clo-app x x ...) ; TODO: clo-app only ever has 2 x's, should be (clo-app x x)
 ;     | (if x e e)
 ;
 ; Output Language is LLVM IR.
@@ -274,8 +274,9 @@
                                                  #:base '(up 16) #:min-width 2 #:pad-string "0")))
                                    (string->list s)) "") "\\00"))
 
+; because a `c-encode`d string is hex-encoded,
+; we can just split on `\\` and get the length of that list.
 (define (enc-len s) (length (string-split s "\\")))
-
 
 ; a helper to indent a list of strings
 (define (ilist indent-level . xs)

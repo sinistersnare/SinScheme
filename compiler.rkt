@@ -1,19 +1,18 @@
 #lang racket
 
-
 (provide
  scm->exe llvm->exe scm->llvm
  gen-build-file)
 
 (require (only-in "src/racket/top-level.rkt" top-level))
 (require (only-in "src/racket/desugar.rkt" desugar))
-(require (only-in "src/racket/cps.rkt" cps-convert))
-(require (only-in "src/racket/anf.rkt" anf-convert))
 (require (only-in "src/racket/assignment-convert.rkt" assignment-convert))
 (require (only-in "src/racket/alphatize.rkt" alphatize))
-(require (only-in "src/racket/closure-convert.rkt" closure-convert))
-(require (only-in "src/racket/llvm-convert.rkt" llvm-convert))
-(require (only-in "src/racket/utils.rkt" read-begin simplify-ir))
+(require (only-in "src/racket/cps-anf.rkt" anf-convert))
+(require (only-in "src/racket/cps.rkt" cps-convert))
+(require (only-in "src/racket/cps-closure-convert.rkt" closure-convert))
+(require (only-in "src/racket/cps-llvm-convert.rkt" llvm-convert))
+(require (only-in "src/racket/utils.rkt" read-begin))
 
 (require threading)
 
@@ -71,7 +70,7 @@
 (define (compile-code scm)
   (llvm-convert (closure-convert
                  (cps-convert (anf-convert (alphatize (assignment-convert
-                                                       (simplify-ir (desugar (top-level scm))))))))))
+                                                       (desugar (top-level scm)))))))))
 
 ;; End actual LLVM emitter code.
 
@@ -83,9 +82,7 @@
 
 (define compiler-flags
   (string-join '("-std=c++11"
-                 ; "-lpthread" ; why am i compiling threads?
-                 ; "-O2" ;;; TODO figure out why optimization fails
-                 "-g" ;;; TODO figure out why debug fails
+                 ; "-O2" ; TODO:  use `$ opt` instead of clang optimizations.
                  "-DGC_DEBUG"
                  "-Wall"
                  "-Weverything"
@@ -94,7 +91,7 @@
                  "-Wno-c++98-compat-pedantic" ; so i can use variadic macros for errors.
                  "-Wno-extra-semi-stmt")))
 
-; should probably parameterize this too.
+; TODO: should probably parameterize this too.
 (define header-location "./src/cpp/header.cpp")
 
 ; separates the runtime header and the user code
@@ -109,7 +106,6 @@
   runtime-header-name)
 
 ; gets the runtime-half of the LLVM IR as a string.
-; TODO: should delete this
 (define (get-runtime-header)
   (file->string (get-runtime-file)))
 
@@ -128,13 +124,12 @@
 ; The input port is NOT closed by this, close it yourself, chump!
 (define (scm->llvm scm-port)
   (define scm (read-begin scm-port))
-  (~> scm top-level desugar simplify-ir assignment-convert
+  (~> scm top-level desugar assignment-convert
       alphatize anf-convert cps-convert closure-convert llvm-convert))
 
 ; compile the given user-half of LLVM to a full exe named `exe-name`.
 ; Takes 2 strings:, the user-half LLVM, and the name of the resulting executable.
 ; Returns void.
-
 (define (llvm->exe user-llvm exe-name)
   (define combined-ir-path (gen-build-file (gensym 'generated_combined) ".ll"))
   (define out-combined-file (open-output-file combined-ir-path #:mode 'text #:exists 'replace))

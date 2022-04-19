@@ -122,6 +122,7 @@ It was a really fun class, you should take take a look at it!
 ## TODO: ##
 
 * Update documentation on compiler phases and primitives, and everything else...
+	* More important now that we dont do CPS anymore... Docs are fairly stale!
 * A way to auto-include LibGC without asking users to modify compiler.rkt?
 * Would be nice to revamp the compiler interface.
 	* Just default to scm->exe, keep flags the change. still require `-i` and `-o`.

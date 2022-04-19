@@ -78,19 +78,15 @@
       ['() (anf-convert body)]
       [`((,binding ,val) ,rest ...) `(let ([,binding ,(anf-convert val)])
                                        ,(normalize-let rest body))]))
-  ; TODO: DESCRIBE WHY WE USE CPS TO DEFINE THIS FUNCTION!
-  ; because it leads to smaller code? (yes) Because it makes intuitive sense? (not really!)
-  ; how to read it:
-  ; talk about how the continuation is like, here is what we do after processing.
-  ; and how when we call a func like normalize-ae, the k arg is like
-  ; 'what to output after processing the e into an ae, where the lambdas arg is the processed ae'.
-  ; and that we call k in that lambda because we need to 'continue' computing
-  ; after returning the finished syntax.
-  ; why CPS:
-  ; And how its easier to use CPS instead of a more 'direct' method, because when we
-  ; wrap the complex exp in a let binding, we need to also call back into the original code,
-  ; which would be really akward in direct-style code. So by using continuations
-  ; we can pass the administrative binding back into the code that knows what to do with it
+  ; CPS is used here because we need to process code that kind of works 'outwards'.
+  ; We are processing an inner node, and need to hoist it out of the current code,
+  ; what it outputs is unknown, but once its hoisted, we call back to the continuation
+  ; so we can fill in the inner bits.
+  ; The continuation's arg is the ae that was processed that we can slip in to our
+  ; new inner bit...
+  ; like, when we process ((let ([f (lambda ...)]) f) 5), we need to use a continuation
+  ; because the let is hoisted out of the function-position to output
+  ; `(let ([f (lambda ...)]) (f 5))`. The continuation arg (`ae`) would be `f` in this case.
   (define (normalize e k)
     (match e
       [(? symbol? x) (k x)]
@@ -107,6 +103,8 @@
       [`(,es ...) (normalize-aes es k)]
       [else (raise `(bad-syntax ,e))]))
   (normalize e (lambda (x) x)))
+
+
 
 ; for ez testing...
 (define anf anf-convert)

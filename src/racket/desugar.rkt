@@ -1,8 +1,7 @@
 #lang racket
 
 (provide desugar)
-(require (only-in "utils.rkt" symbol-append prim? prims->list datum?))
-
+(require (only-in "utils.rkt" symbol-append prim? prims-list datum?))
 
 ; Input Language
 ;
@@ -33,7 +32,7 @@
 ;     | x
 ;     | op
 ;     | (quote dat)
-
+;
 ; cond-clause ::= (e) | (e e) | (else e)
 ; case-clause ::= ((dat ...) e) | (else e)
 ; dat is a datum satisfying datum?
@@ -95,7 +94,7 @@
 
 (define (desugar e)
   #;(pretty-display e)
-  (desugar-aux (wrap e) (initial-env)))
+  (simplify-ir (desugar-aux (wrap e) (initial-env))))
 (define (d e) (desugar-aux e (initial-env))) ; helper
 
 ; e is the expression that we are desugaring into the IR language.
@@ -174,7 +173,7 @@
        ; is all the same, we only need the key and the knowledge that they
        ; have not been overridden.
        [prim-env (foldl (λ (k res) (hash-set res k (p)))
-                        shadow-safe (prims->list))])
+                        shadow-safe prims-list)])
     prim-env))
 
 (define (desugar-lambda e env)
@@ -421,9 +420,10 @@
         'vector-ref (cons protect-prim-vector-ref protect-applyprim-vector-ref)
         'vector-set! (cons protect-prim-vector-set! protect-applyprim-vector-set!)))
 
-; These two are not technically part of the source language
-; but they are added to it and then these are called.
-; but adding them makes life easier! No harm done :)
+; `(apply-)prim` should technically not be a part of the source language...
+; And desugar should only work on forms in the source language...
+; But we do things like (desugar `(prim ... ,e ...))
+; And it makes life easier! sooooo... lets just be cool with it!
 (define (desugar-prim e env)
   (match-define `(,_ ,(? prim? op) ,es ...) e)
   (define protected? (hash-ref (protected-prims) op #f))
@@ -444,9 +444,77 @@
 ; these are low level things, used by the special forms.
 (define (wrap e)
   `(let*
-       ; raise handler goes first so we have it defined
-       ; if vector-ref goes bad in `promise?`.
-       ([%raise-handler
+       ; this version of the Z-combinator works with varargs!
+       ([Z ((λ (u) (u u))
+            (λ (y) (λ (f) (f (λ args (apply ((y y) f) args))))))]
+        ; these are '1' in the sense that they take exactly one list.
+        ; for the general versions of these functions that take n-lists
+        ; just use `foldl` and `foldr`!
+        [%%map1 (Z (λ (map) (λ (f xs) (if (null? xs)
+                                          '()
+                                          (cons (f (car xs))
+                                                (map f (cdr xs)))))))]
+        [%%foldl1 (Z (λ (foldl) (λ (f acc xs) (if (null? xs) acc
+                                                  (foldl f (f (car xs) acc)
+                                                         (cdr xs))))))]
+        [%%foldr1 (Z (λ (foldr) (λ (f acc xs) (if (null? xs) acc
+                                                  (f (car xs)
+                                                     (foldr f acc (cdr xs)))))))]
+        [length (Z (λ (length) (λ (xs) (if (null? xs) '0 (+ '1 (length (cdr xs)))))))]
+        [drop-right (λ (xs n) (take xs (- (length xs) n)))]
+        [last (λ (xs) (%%foldl1 (λ (x y) x) '() xs))]
+        ; these are the variable arity versions of these.
+        ; they require the '1' arity versions for checks.
+        [foldr (Z (λ (foldr)
+                    (λ (f acc . lsts)
+                      ; if any of the lists are empty, return the acc
+                      (if (%%foldl1 (λ (lst b) (if b b (prim null? lst))) '#f lsts)
+                          acc
+                          (let ([lsts+ (%%map1 cdr lsts)]
+                                [vs (%%map1 car lsts)])
+                            (apply f (%%foldr1 (λ (a b) (cons a b))
+                                               (cons (apply foldr (cons f (cons acc lsts+)))
+                                                     '())
+                                               vs)))))))]
+        [map (Z (λ (map)
+                  (λ (f . lsts)
+                    (apply foldr (cons (λ fargs (cons (apply f (drop-right fargs '1))
+                                                      (last fargs)))
+                                       (cons '() lsts))))))]
+        [foldl (Z (λ (foldl)
+                    (λ (f acc . lsts)
+                      ; if any of the lists are empty, return the acc.
+                      (if (%%foldl1 (λ (xs b) (if b b (null? xs))) '#f lsts)
+                          acc
+                          (let* ([lsts+ (%%map1 cdr lsts)]
+                                 [vs (%%map1 car lsts)]
+                                 [acc+ (apply f (%%foldr1 cons (cons acc '()) vs))])
+                            (apply foldl (cons f (cons acc+ lsts+))))))))]
+        [take (Z (λ (take) (λ (xs n) (if (= n '0) '()
+                                         (if (null? xs) '()
+                                             (cons (car xs)
+                                                   (take (cdr xs) (- n '1))))))))]
+        ; assuming comparator operators are binary...!
+        [>= (λ (a b) (prim not (< a b)))]
+        [> (λ (a b) (prim not (<= a b)))]
+        [append (Z (λ (append) (λ (xs ys) (if (null? xs) ys
+                                              (cons (car xs)
+                                                    (append (cdr xs) ys))))))]
+        [list? (Z (λ (list?) (λ (xs?) (if (null? xs?) '#t
+                                          (if (cons? xs?) (list? (cdr xs?)) '#f)))))]
+        [drop (Z (λ (drop) (λ (xs n) (if (<= n '0) xs (drop (cdr xs) (- n '1))))))]
+        ;; [drop (Z (λ (drop) (λ (xs n) xs)))]
+        [memv (Z (λ (memv) (λ (v xs) (if (null? xs) '#f
+                                         (if (eqv? (car xs) v) xs
+                                             (memv v (cdr xs)))))))]
+        [first (λ (xs) (car xs))]
+        [second (λ (xs) (car (cdr xs)))]
+        [third (λ (xs) (car (cdr (cdr xs))))]
+        [fourth (λ (xs) (car (cdr (cdr (cdr xs)))))]
+        [fifth (λ (xs) (car (cdr (cdr (cdr (cdr xs))))))]
+        ; raise handler goes first so we have it defined
+        ; if vector-ref goes bad in `promise?`.
+        [%raise-handler
          (lambda (%%uncaught-raise-arg)
            (begin (print '"Uncaught Exception: ")
                   (print %%uncaught-raise-arg)
@@ -614,3 +682,47 @@
   (desugar-aux (extract-and-call 'vector-ref elist 2) env))
 (define (protect-applyprim-vector-set! elist env)
   (desugar-aux (extract-and-call 'vector-set! elist 3) env))
+
+
+
+(define (simplify-ir e)
+  ; TODO: take 1-list callsites of map/foldl/foldr and translate them to
+  ;       %%map1, %%foldr1, %%foldr2 for efficiency?
+  (define (T e)
+    (match e
+      [`(let ([,xs ,es] ...) ,eb) `(let ,(map list xs (map T es)) ,(T eb))]
+      [`(lambda ,xs ,e) `(lambda ,xs ,(T e))]
+      [`(apply ,ef ,ex) `(apply ,@(map T (list ef ex)))]
+      [`(if ,ec ,et ,ef) `(if ,@(map T (list ec et ef)))]
+      [`(set! ,x ,e) `(set! ,x ,(T e))]
+      [`(call/cc ,ef) `(call/cc ,(T ef))]
+      [`(quote ,(? symbol? x)) `(quote ,x)]
+      [`(quote #(,ds ...)) (T `(prim vector ,@(map (λ (d) `',d) ds)))]
+      [`(quote ,(? list? lst)) (T `(prim list ,@(map (λ (d) `',d) lst)))]
+      [`(quote ,dat) `(quote ,dat)]
+      ; remove vararg +
+      [`(prim +) ''0]
+      [`(prim + ,e0) (T e0)]
+      [`(prim + ,e0 ,e1 ,e2 ,es ...) `(prim + ,(T e0) ,(T `(prim + ,e1 ,e2 ,@es)))]
+      ;remove vararg *
+      [`(prim *) ''1]
+      [`(prim * ,e0) (T e0)]
+      [`(prim * ,e0 ,e1 ,e2 ,es ...) (T `(prim * ,e0 (prim * ,e1 ,e2 ,@es)))]
+      ; remove vararg -
+      [`(prim - ,e0) `(prim - '0 ,(T e0))]
+      [`(prim - ,e0 ,e1) `(prim - ,@(map T (list e0 e1)))]
+      [`(prim - ,e0 ,emids ... ,elast) (T `(prim - (prim - ,e0 ,emids) ,elast))]
+      [`(prim / ,e0 ,e1) `(prim / ,@(map T (list e0 e1)))]
+      ; remove many prims: list,
+      [`(prim list ,es ...) `((lambda xs xs) ,@(map T es))]
+      [`(apply-prim list ,e) (T e)]
+      ; eta-expand vararg prims to use apply-prim
+      [`(prim vector ,es ...) (T `((lambda xs (apply-prim vector xs)) ,@es))]
+      [`(prim hash ,es ...) (T `((lambda xs (apply-prim hash xs)) ,@es))]
+      ; if there is no special case, just simplify the inner args
+      [`(prim ,op ,es ...) `(prim ,op ,@(map T es))]
+      [`(apply-prim ,op ,ex) `(apply-prim ,op ,(T ex))]
+      [`(,ef ,es ...) (map T (cons ef es))]
+      [(? symbol? x) x]))
+  (identity e))
+

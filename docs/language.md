@@ -1,5 +1,28 @@
 # The SinScm Language #
 
+## Modern SinScm ##
+
+The old nano-pass pipeline utilized Continuation-Passing-Style to
+easily obtain an SSA form to convert to LLVM IR. This was easy,
+but the generated code was slow as it eschewed the heap.
+
+Old pipeline:
+
+top-level => desugar => simplify-ir => assignment-convert => alphatize
+          => anf-convert => cps-convert => closure-convert => llvm-convert
+
+The new style converts into a more general SSA form (CPS in a subset of SSA).
+Phi-nodes are needed as function calls are not always tail calls now.
+This necessitates the use of segmented stacks.
+
+top-level => desugar => assignment-convert => alphatize
+          => sym-anf-convert => ssa-convert => ssa-closure-convert
+          => ssa-lir-convert => ssa-llvm-convert
+
+Does this system work? Not yet!
+
+# Old docs #
+
 This is probably going to be a short document, but I figured it would be nice.
 
 This is the SinScheme language, made by me, The Sinistersnare.
@@ -59,7 +82,7 @@ using functions. This is done by adding a 'continuation' argument to each functi
 and never actually returning. At the end of the program, we 'halt'. By doing this,
 we obviate the stack. CPS is good in this language because LLVM can tail-call
 optimize programs whereas things like the JVM cant, and CPS would destroy the stack in a JVM.
-7. Closure-Conversion (`closure-convert.rkt`): Here, we replace all syntactic functions
+7. Closure-Conversion (`cps-closure-convert.rkt`): Here, we replace all syntactic functions
 (`lambda` forms) with 'closures' which pair the syntax with an explicit environment
 that closes over the function. Each closure is placed on the top-level of the program,
 and is explicitly created with an environment before use. The output is a `proc` IR

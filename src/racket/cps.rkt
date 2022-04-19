@@ -18,7 +18,7 @@
 ;      | x
 ;      | (quote dat)
 
-; cps-convert => 
+; cps-convert =>
 
 ; e ::= (let ([x (apply-prim op ae)]) e)
 ;     | (let ([x (prim op ae ...)]) e)
@@ -73,6 +73,7 @@
        `(let ([,bind ,(conv-atomic `(lambda ,args ,lambdabody))]) ,(conv-complex body cae))]
       [`(let ([,bind (quote ,(? datum? dat))]) ,body)
        `(let ([,bind (quote ,dat)]) ,(conv-complex body cae))]
+      ; this is used when we have a thing in the let-binding we dont want (e.g. `if`)
       ; evaluate the bindval, then use it in a continuation immediately.
       [`(let ([,bind ,bindval]) ,body)
        (let ([unusedk (gensym 'unusedk)])
@@ -105,4 +106,5 @@
       [`(,aef ,aes ...) `(,(conv-atomic aef) ,cae ,@(map conv-atomic aes))]
       [raise `(bad-complex-syntax ,exp)]))
   (conv-complex anf-code '(lambda (k x) (let ([_1 (prim halt x)]) (k x)))))
+
 

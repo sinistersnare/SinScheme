@@ -17,6 +17,8 @@
 ;     | x
 ;     | (quote dat)
 
+; rename all variables to ensure that even future transformations
+; will not collide with a name perhaps in the program
 (define (alphatize e)
   (define (rename env e)
     (match e
@@ -42,5 +44,5 @@
       [`(if ,if ,then ,else) `(if ,(rename env if) ,(rename env then) ,(rename env else))]
       [`(call/cc ,e) `(call/cc ,(rename env e))]
       [`(,func ,args  ...) (map (lambda (x) (rename env x)) (cons func args))]
-      [else (raise `('bad-syntax ,e))]))
+      [_ (raise `('bad-syntax ,e))]))
   (rename (hash) e))

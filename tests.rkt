@@ -17,10 +17,10 @@
 (require (only-in "src/racket/alphatize.rkt" alphatize))
 (require (only-in "src/racket/assignment-convert.rkt" assignment-convert))
 
-(require (only-in "src/racket/anf.rkt" anf-convert))
+(require (only-in "src/racket/cps-anf.rkt" anf-convert))
 (require (only-in "src/racket/cps.rkt" cps-convert))
-(require (only-in "src/racket/closure-convert.rkt" closure-convert))
-(require (only-in "src/racket/llvm-convert.rkt" llvm-convert))
+(require (only-in "src/racket/cps-closure-convert.rkt" closure-convert))
+(require (only-in "src/racket/cps-llvm-convert.rkt" llvm-convert))
 
 (require (only-in "compiler.rkt" gen-build-file scm->exe llvm->exe))
 

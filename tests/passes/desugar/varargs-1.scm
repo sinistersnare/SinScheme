@@ -1,8 +1,4 @@
 
-
-
-
-
 (foldl (lambda (lst f a)
          (* (apply f lst) (car (cdr lst))))
        '0

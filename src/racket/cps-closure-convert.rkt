@@ -79,10 +79,6 @@
     [`(,aef ,aes ...)
      (expand-aes (λ (done) done) (cons aef aes) '())]))
 
-; quick function in effort of making more readable arg-lists.
-(define (number->symbol n)
-  (string->symbol (number->string n)))
-
 ; turn (λ (xs ...) e) -> (λ xs e) -> (λ (xs) e)
 ; turn (λ xs e) -> (λ (xs) e)
 ; AKA turn every λ into a 1-arg positional that takes an explicit list
@@ -134,7 +130,7 @@
      ; use $ as a separator to avoid name mangling when converting to LLVM IR.
      (define argsname (symbol-append (gensym 'args) '$ aef '$))
      ; we start with null, and then as we consume args, we add to the list.
-     `(let ([,(symbol-append argsname (number->symbol 0)) '()])
+     `(let ([,(symbol-append argsname 0) '()])
         ,(layout-untagged aef (reverse aes) argsname 0))]))
 
 ; (f a b c) -> (clo-app f a b c) -> (C-style-app f[0] f a b c)
