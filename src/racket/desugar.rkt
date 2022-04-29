@@ -449,7 +449,7 @@
             (λ (y) (λ (f) (f (λ args (apply ((y y) f) args))))))]
         ; these are '1' in the sense that they take exactly one list.
         ; for the general versions of these functions that take n-lists
-        ; just use `foldl` and `foldr`!
+        ; just use `map`, `foldl` and `foldr`!
         [%%map1 (Z (λ (map) (λ (f xs) (if (null? xs)
                                           '()
                                           (cons (f (car xs))
@@ -503,7 +503,6 @@
         [list? (Z (λ (list?) (λ (xs?) (if (null? xs?) '#t
                                           (if (cons? xs?) (list? (cdr xs?)) '#f)))))]
         [drop (Z (λ (drop) (λ (xs n) (if (<= n '0) xs (drop (cdr xs) (- n '1))))))]
-        ;; [drop (Z (λ (drop) (λ (xs n) xs)))]
         [memv (Z (λ (memv) (λ (v xs) (if (null? xs) '#f
                                          (if (eqv? (car xs) v) xs
                                              (memv v (cdr xs)))))))]
@@ -687,7 +686,8 @@
 
 (define (simplify-ir e)
   ; TODO: take 1-list callsites of map/foldl/foldr and translate them to
-  ;       %%map1, %%foldr1, %%foldr2 for efficiency?
+  ;       %%map1, %%foldr1, %%foldr1 for efficiency?
+  ;       But we would have to ensure no shadowing ugh
   (define (T e)
     (match e
       [`(let ([,xs ,es] ...) ,eb) `(let ,(map list xs (map T es)) ,(T eb))]

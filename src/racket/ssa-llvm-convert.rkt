@@ -13,7 +13,6 @@
 ; i ::= (assign x l)
 ;     | (if x (label x) (label x))
 ;     | (jump (label x))
-;     | (return r)
 ;     | (label x)
 ; l ::= (make-closure x x ...)
 ;     | (env-ref x nat)
@@ -29,7 +28,7 @@
 ; Output language is LLVM IR! I will NOT write that grammar out!!
 
 (define (ssa-llvm-convert lisp-style-lir)
-  (define lir (normalize-names pretty-lir))
+  (define lir (normalize-names lisp-style-lir))
   (match-define (cons symbol-globals string-globals) (compute-globals lir))
   (string-join
    `("; Begin user globals"
@@ -44,17 +43,17 @@
 (define (normalize-names lir)
   ; converts all variable names from a 'lisp style' (i.e. kebab case with any symbol)
   ; into a c-style (only character class \w allowed basically)
-  (define (normalize x) (string-symbol (c-name x)))
+  (define (normalize x) (string->symbol (c-name x)))
   (define (norm-proc proc)
-    (match-define `(proc (,name ,env ,args) ,e))
+    (match-define `(proc (,name ,env ,args) ,e) proc)
     `(proc (,(normalize name) ,(normalize env) ,(normalize args)) ,(map norm-i e)))
   (define (norm-i i)
     (match i
       [`(assign ,x ,l)
        `(assign ,(normalize x) ,(norm-l l))]
       [`(if ,xc (label ,xt) (label ,xf))
-       `(if ,(normalize xc) (label ,(normalize xt)) (label ,(normalize ,xf)))]
-      [`(jump (label x)) `(jump (label ,(normalize x)))]
+       `(if ,(normalize xc) (label ,(normalize xt)) (label ,(normalize xf)))]
+      [`(jump (label ,x)) `(jump (label ,(normalize x)))]
       [`(label ,x) `(label ,(normalize x))]
       [`(return ,r) `(return ,(norm-r r))]))
   (define (norm-l l)
@@ -70,7 +69,7 @@
   (define (norm-r r)
     (match r
       [`(call/cc ,x) `(call/cc ,(normalize x))]
-      [`(clo-app ,xf ,xx) `(clo-app ,(normalize ,xf) ,(normalize xx))]
+      [`(clo-app ,xf ,xx) `(clo-app ,(normalize xf) ,(normalize xx))]
       [(? symbol? x) (normalize x)]))
   (map norm-proc lir))
 
@@ -182,7 +181,7 @@
          ,(format "  %~a = alloca %struct.SinObj*, align 8" stackaddr)
          ; convert the function pointer to an integer for storage
          ,(format "  %~a = ptrtoint %struct.SinObj*(%struct.SinObj*, %struct.SinObj*)* @proc_~a to i64"
-                  fptr->int fname)
+                  fptr->int xf)
          ; allocate the closure
          ,(format "  %~a = call %struct.SinObj* @closure_alloc(i64 ~a, i64 %~a)" x (length freevars) fptr->int)
          ; store the closure on the stack

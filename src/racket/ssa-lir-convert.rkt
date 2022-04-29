@@ -24,11 +24,11 @@
 ; Output language (lir-conv):
 
 ; p ::= ((proc (x x x) e) ...)
-; e ::= (i ... r)
-; b ::= (label x e)
+; e ::= (i ... (return r))
 ; i ::= (assign x l)
 ;     | (if x (label x) (label x))
-;     | (return x)
+;     | (jump (label x))
+;     | (label x)
 ; l ::= (make-closure x x ...)
 ;     | (env-ref x nat)
 ;     | (quote dat)
