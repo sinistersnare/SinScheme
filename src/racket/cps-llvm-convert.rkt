@@ -189,8 +189,8 @@
      (define clo-fn (gensym 'clofn))
      (ilist
       indent-level
-      (format "%~a = call void ~a @closure_get_fn_part(%struct.SinObj* %~a)"
-              clo-fn "(%struct.SinObj*, %struct.SinObj*)*" clo-obj)
+      (format "%~a = call void (%struct.SinObj*, %struct.SinObj*)* @closure_get_fn_part(%struct.SinObj* %~a)"
+              clo-fn clo-obj)
       (format "musttail call tailcc void %~a(%struct.SinObj* %~a, ~a)"
               clo-fn clo-obj (string-join (map (λ (a) (format "%struct.SinObj* %~a" a)) args) ", "))
       "ret void")]

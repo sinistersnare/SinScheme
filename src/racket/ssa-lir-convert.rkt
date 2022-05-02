@@ -23,7 +23,7 @@
 
 ; Output language (lir-conv):
 
-; p ::= ((proc (x x x) e) ...)
+; p ::= ((proc (x nat x x) e) ...)
 ; e ::= (i ... (return r))
 ; i ::= (assign x l)
 ;     | (if x (label x) (label x))
@@ -43,6 +43,8 @@
 ; low-level IR is a list-based, imperative style IR
 ; designed to be easily converted into an imperative asm language
 ; such as LLVM IR or ASM directly.
+; the `nat` in the proc is for the amount of stack slots needed.
+; This is the 2 arguments + the amount of locals.
 (define (lir-convert procs)
   (define (conv-l l)
     (match l
@@ -100,9 +102,20 @@
          ,@join-conv)]
       ; else we are in tail position
       [r `(return ,(conv-r r))]))
+  (define (num-slots body)
+    (define (num-in-i i)
+      (match i
+        [`(assign . ,_) 1]
+        [_ 0]))
+    ; always at least 4, closures take 2 arguments (the closure and the arg-list)
+    ; and there is 1 more slot for the return-address, and 1 for call-frame size.
+    ; so num-local-vars + 4 = number of slots needed on stack for function call.
+    (foldl + 4 (map num-in-i body)))
   (define (conv-proc proc)
-    (match-define `(proc ,sig ,ebody) proc)
-    `(proc ,sig ,(conv-e ebody)))
+    (match-define `(proc (,xname ,xenv ,xargs) ,ebody) proc)
+    (define converted-body (conv-e ebody))
+    (define nslots (num-slots converted-body))
+    `(proc (,xname ,nslots ,xenv ,xargs) ,converted-body))
   (map conv-proc procs))
 
 ; it would be nice to make labels something like `(label x e)`

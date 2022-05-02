@@ -8,7 +8,7 @@
 
 ; Input Language (output of `lir-convert`):
 
-; p ::= ((proc (x x x) e) ...)
+; p ::= ((proc (x nat x x) e) ...)
 ; e ::= (i ... (return r))
 ; i ::= (assign x l)
 ;     | (if x (label x) (label x))
@@ -45,8 +45,8 @@
   ; into a c-style (only character class \w allowed basically)
   (define (normalize x) (string->symbol (c-name x)))
   (define (norm-proc proc)
-    (match-define `(proc (,name ,env ,args) ,e) proc)
-    `(proc (,(normalize name) ,(normalize env) ,(normalize args)) ,(map norm-i e)))
+    (match-define `(proc (,name ,nslots ,env ,args) ,e) proc)
+    `(proc (,(normalize name) ,nslots ,(normalize env) ,(normalize args)) ,(map norm-i e)))
   (define (norm-i i)
     (match i
       [`(assign ,x ,l)
@@ -147,9 +147,9 @@
       [(? string? str) (conv-global 'str str)]
       [(? symbol? sym) (conv-global 'sym sym)]))
   (define (layout-proc p)
-    (match-define `(proc (,name ,env ,args) ,e) p)
-    ; TODO: this isnt tailcc with segmented-stack stuff, gonna have to do that work ourselves!
-    `(,(format "define dso_local tailcc %struct.SinObj* @proc_~a(%struct.SinObj* %~a, %struct.SinObj* %~a) {"
+    (match-define `(proc (,name ,nslots ,env ,args) ,e) p)
+    ; TODO: use the segmented stack single-llvm-function approach.
+    `(,(format "define dso_local %struct.SinObj* @proc_~a(%struct.SinObj* %~a, %struct.SinObj* %~a) {"
                name env args)
       ,@(map layout-i e)
       "}\n"))
@@ -183,9 +183,11 @@
          ,(format "  %~a = ptrtoint %struct.SinObj*(%struct.SinObj*, %struct.SinObj*)* @proc_~a to i64"
                   fptr->int xf)
          ; allocate the closure
-         ,(format "  %~a = call %struct.SinObj* @closure_alloc(i64 ~a, i64 %~a)" x (length freevars) fptr->int)
+         ,(format "  %~a = call %struct.SinObj* @closure_alloc(i64 ~a, i64 %~a)"
+                  x (length xs) fptr->int)
          ; store the closure on the stack
-         ,(format "  store volatile %struct.SinObj* %~a, %struct.SinObj** %~a, align 8\n" x stackaddr)
+         ,(format "  store volatile %struct.SinObj* %~a, %struct.SinObj** %~a, align 8\n"
+                  x stackaddr)
          ; place the free variables
          ,@free-placements)]
       [`(assign ,x (env-ref ,xenv ,n))
@@ -193,8 +195,9 @@
        `(,(format "  %~a = alloca %struct.SinObj*, align 8" stackaddr)
          ,(format "  %~a = call %struct.SinObj* @closure_env_get(%struct.SinObj* %~a, i64 ~a)"
                   x xenv n)
-         ,(format "  store volatile %struct.SinObj* %~a, %struct.SinObj** %~a, align 8\n" x stackaddr))]
-      [`(assign ,x (prim op . ,xs))
+         ,(format "  store volatile %struct.SinObj* %~a, %struct.SinObj** %~a, align 8\n"
+                  x stackaddr))]
+      [`(assign ,x (prim ,op . ,xs))
        (define stackaddr (gensym 'primsa))
        `(; allocate stack address
          ,(format "  %~a = alloca %struct.SinObj*, align 8" stackaddr)
@@ -202,15 +205,18 @@
          ,(format "  %~a = call %struct.Sinobj* @~a(~a)" x (prim-name op)
                   (string-join (map (λ (a) (format "%struct.SinObj* %~a" a)) xs) ", "))
          ; store register value onto stack
-         (format "  store volatile %struct.SinObj* %~a, %struct.SinOBj** %~a, align 8\n" x stackaddr))]
+         (format "  store volatile %struct.SinObj* %~a, %struct.SinOBj** %~a, align 8\n"
+                 x stackaddr))]
       [`(assign ,x (apply-prim ,op ,xx))
        (define stackaddr (gensym 'applyprimsa))
        `(; Allocate stack address
          ,(format "  %~a = alloca %struct.SinObj*, align 8" stackaddr)
          ; Call apply-prim, place into register
-         ,(format "  %~a = call %struct.SinObj* @~a(%struct.SinObj* %~a)" x (applyprim-name op) arg)
+         ,(format "  %~a = call %struct.SinObj* @~a(%struct.SinObj* %~a)"
+                  x (applyprim-name op) xx)
          ; Store register value onto stack
-         ,(format "  store volatile %struct.SinObj* %~a, %struct.SinObj** %~a, align 8\n" x stackaddr))]
+         ,(format "  store volatile %struct.SinObj* %~a, %struct.SinObj** %~a, align 8\n"
+                  x stackaddr))]
       [`(assign ,x (phi (,x0 ,lx0) (,x1 ,lx1)))
        `(,(format "  %~a = phi %struct.SinObj* [%~a, %~a] [%~a, %~a]" x x0 lx0 x1 lx1))]
       [`(assign ,x ,r)

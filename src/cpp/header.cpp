@@ -64,6 +64,8 @@ SinObj* closure_alloc(const s64 amt_freevars, u64 fptr) {
     // as they are internal to the Closure object itself.
     lam_part.type = Other;
     lam_part.valueptr = reinterpret_cast<u64*>(fptr);
+    // TODO: why is this an _Other_ and not just a vector straight up?
+    //       less indirection if we change it.
     env_part.type = Other;
     env_part.valueptr = reinterpret_cast<u64*>(prim_make_45vector(const_init_int(amt_freevars),
                                                                   const_init_int(0)));
