@@ -91,7 +91,6 @@ void closure_place_freevar(SinObj* clo, SinObj* freevar, s64 pos) {
     prim_vector_45set_33(vec, pos_obj, freevar);
 }
 
-
 /// Returns a u64, which can be `inttoptr`d/`reinterpret`d
 /// into a (void (SinObj*, SinObj*)) function pointer.
 proc_ptr closure_get_fn_part(SinObj* clo) {

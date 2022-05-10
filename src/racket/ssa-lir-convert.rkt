@@ -21,6 +21,7 @@
 ;     | (call/cc x)
 ;     | (clo-app x x)
 
+; TODO: should rename `assign` to `bind`.
 ; Output language (lir-conv):
 
 ; p ::= ((proc (x nat x x) e) ...)
@@ -34,7 +35,7 @@
 ;     | (quote dat)
 ;     | (prim op x ...)
 ;     | (apply-prim op x)
-;     | (phi (x x) (x x))
+;     | (phi (x (label x)) (x (label x)))
 ;     | r
 ; r ::= x
 ;     | (call/cc x)
@@ -94,7 +95,8 @@
              (jump ,branch-label-join))))
        (define join-conv
          `((label ,branch-label-join)
-           (assign ,x (phi (,phi-t ,branch-label-true) (,phi-f ,branch-label-false)))
+           (assign ,x (phi (,phi-t (label ,branch-label-true))
+                           (,phi-f (label ,branch-label-false))))
            ,@(conv-e ejoin)))
        `((if ,xc (label ,branch-label-true) (label ,branch-label-false))
          ,@t-conv
@@ -103,14 +105,13 @@
       ; else we are in tail position
       [r `(return ,(conv-r r))]))
   (define (num-slots body)
-    (define (num-in-i i)
+    (define (locals-in-i i)
       (match i
         [`(assign . ,_) 1]
         [_ 0]))
-    ; always at least 4, closures take 2 arguments (the closure and the arg-list)
-    ; and there is 1 more slot for the return-address, and 1 for call-frame size.
-    ; so num-local-vars + 4 = number of slots needed on stack for function call.
-    (foldl + 4 (map num-in-i body)))
+    ; Closure takes two arguments (the closure and the arg-list)
+    ; + the return address means 3 slots are needed at least.
+    (foldl + 4 (map locals-in-i body)))
   (define (conv-proc proc)
     (match-define `(proc (,xname ,xenv ,xargs) ,ebody) proc)
     (define converted-body (conv-e ebody))

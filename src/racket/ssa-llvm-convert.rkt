@@ -19,7 +19,7 @@
 ;     | (quote dat)
 ;     | (prim op x ...)
 ;     | (apply-prim op x)
-;     | (phi (x x) (x x))
+;     | (phi (x (label x)) (x (label x)))
 ;     | r
 ; r ::= x
 ;     | (call/cc x)
@@ -174,7 +174,7 @@
        (define fptr->int (gensym 'fptrasint))
        (define free-placements
          (map (λ (fv i)
-                (format "  call void @closure_place_freevar(%struct.SinObj* %~a, %struct.SinObj* ~a, i64 a)"
+                (format "  call void @closure_place_freevar(%struct.SinObj* %~a, %struct.SinObj* ~a, i64 ~a)"
                         x fv i))
               xs (range (length xs))))
        `(; allocate stack addr
@@ -205,7 +205,7 @@
          ,(format "  %~a = call %struct.Sinobj* @~a(~a)" x (prim-name op)
                   (string-join (map (λ (a) (format "%struct.SinObj* %~a" a)) xs) ", "))
          ; store register value onto stack
-         (format "  store volatile %struct.SinObj* %~a, %struct.SinOBj** %~a, align 8\n"
+         (format "  store volatile %struct.SinObj* %~a, %struct.SinObj** %~a, align 8\n"
                  x stackaddr))]
       [`(assign ,x (apply-prim ,op ,xx))
        (define stackaddr (gensym 'applyprimsa))

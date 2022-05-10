@@ -18,24 +18,36 @@ This section covers how the calling convention works.
 
 ### CALLEE ###
 
-The callee only needs to do things at the moment of its call. It needs to place its local variables, and the size of the call-frame. To be clear.
+The callee needs to setup the call-frame at the moment of its call, and needs to place the return value in the correct place.
 
 Immediately after jumping to the function:
 1. Place locals starting at `&@fpr[3]` (0,1,2 are placed by the caller)
-3. Nothing else, do function stuff
+2. Nothing else, do function stuff
 
-Again, there is nothing to do when returning.
+Immediately before returning:
+1. Place the return value in the `@retr` register.
 
 ### CALLER ###
 
 The caller has work to do immediately before a call and immediately after a return.
 
 Immediately before a call:
-1. `@fpr += N` (this N is the caller function's size, not the callee's)
+1. `@fpr += N` (this N is the caller's call-frame size, not the callee's)
 2. `@fpr[0] = RA`, `RA` is the return address.
-3. `@fpr[1] = Arg0`
-4. `@fpr[2] = Arg1`
+3. `@fpr[1] = N`
+3. `@fpr[2] = Arg0`
+4. `@fpr[3] = Arg1`
 
 Immediately after the return point is jumped to:
-1. `@fpr -= @fpr[-1]`
-2. Nothing else, continue processing.
+-- Fix this to get N from @fpr[1] --
+1. `@fpr -= N` (Again, this N is the callers call-frame size)
+2. Place the value of the `@retr` correctly in the call-frame.
+3. Nothing else, continue processing.
+
+
+# TODO #
+
+Should redo these docs!
+Tail calls are required, they dont alter @fpr.
+And walk through the whole steps, not just what is set...
+Something like, 1) increment @fpr, 2) place things, 3) indirectbr.
