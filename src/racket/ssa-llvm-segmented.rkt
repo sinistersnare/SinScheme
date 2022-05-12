@@ -112,13 +112,18 @@
                  acc))
          '() (hash-keys globals)))
 
+(define (get-proc-sizes normalized-lir)
+  ; (proc (xname nslots _ _) _)
+  (foldl (λ (p acc) (hash-set acc (car (cadr p)) (cadr (cadr p))))
+         (hash) normalized-lir))
+
 (define ra-pos 0)
 (define size-pos 1)
 (define arg0-pos 2)
 (define arg1-pos 3)
-(define args-start-pos 4)
+(define locals-start-pos 4)
 
-(define (layout-program lir globals)
+(define (layout-program lir globals proc-sizes)
   (define start-of-program
     `("define i32 main {"
       "  call void @morestack()"
@@ -138,40 +143,32 @@
       ; 2 for arguments (closure and args-list)
       ; M for locals
       ; so 1 + 1 + 2 + M = frame size.
-      `(,(format "~a:" xname)
-        ,(format "  %~a_fp = load %struct.SinObj**, %struct.SinObj*** @fpr, align 8"
-                 xname)
-        "  ; Create stack slots"
+      (define cur-fp (gensym 'prologue_cur_fp))
+      `((label ,xname)
+        ((% ,cur-fp) = load (** SinObj) (*** SinObj) (@ fpr))
+        (comment "Create stack slots")
         ,@(foldl (λ (n acc)
-                   (cons (format (string-append
-                                  "  %~a_local~a_loc = getelementptr inbounds "
-                                  "%struct.SinObj*, %struct.SinObj** "
-                                  "%~a_fp, i64 ~a")
-                                 ; (+ n 3) because there are 3 slots before locals.
-                                 xname n xname (+ n args-start-pos))
-                         acc))
-                 '() (range (- nslots args-start-pos)))
-        "  ; End function prologue"))
+                   `((% ,(symbol-append xname '_local n '_loc)) = getelementptr inbounds
+                                                                (* SinObj) (** SinObj) (% ,cur-fp)
+                                                                (i64 ,(+ n locals-start-pos))))
+                 '() (range (- nslots locals-start-pos)))
+        (comment "End function Prologue")))
     (define (layout-body)
       (define (layout-i i)
         (match i
           [`(label ,x)
-           `(,(format "~a:" x))]
+           `(label ,x)]
           [`(jump (label ,x))
-           `(,(format "br label ~a" x))]
+           `((br (label (% ,x))))]
           [`(assign ,x (phi (,xtval (label ,xtlabel)) (,xfval (label ,xflabel))))
+           ; TODO: Im not sure xtval and xfval are actually used in the program.
+           (raise 'this-is-broken-i-think-look-above.)
            (define base (symbol-append 'phi_ x))
-           (define reg (cons (symbol-append base 'reg) (hash-ref local-mapping x)))
-           (define t (cons (symbol-append base 't) (hash-ref local-mapping xtval)))
-           (define f (cons (symbol-append base 'f) (hash-ref local-mapping xfval)))
-           '(,(format "  %~a = load %struct.SinObj*, %struct.SinObj** %~a, align 8"
-                      (car t) (cdr t))
-             ,(format "  %~a = load %struct.SinObj*, %struct.SinObj** %~a, align 8"
-                      (car f) (cdr f))
-             ,(format "  %~a = phi %struct.SinObj* [%~a, %~a], [%~a, %~a]"
-                      (car reg) (car t) xtlabel (car f) xflabel)
-             ,(format "  store volatile %struct.SinObj* %~a, %struct.SinObj** %~a, align 8"
-                      (car ret) (cdr ret)))]
+           ; TODO: xtval and xfval should be given the same stack slot?
+           (define ret (cons (symbol-append base 'reg) (hash-ref local-mapping x)))
+           `(((% ,(car ret)) = phi (* SinObj)
+                             [(% ,xtval) (label (% ,xtlabel))] [(% ,xfval) (label (% ,xflabel))])
+             (store (* SinObj) (% ,(car ret)) (** SinObj) (% ,(cdr ret))))]
           [`(if ,xc (label ,xt) (label ,xf))
            (define base (gensym 'if))
            (define reg (cons (symbol-append base '_reg) (hash-ref local-mapping xc)))
@@ -179,12 +176,9 @@
            ; put xc in a register
            ; check truthiness of xc
            ; branch on truthiness.
-           `(,(format "  %~a = load %struct.SinObj*, %struct.SinObj** %~a, align 8"
-                      (car reg) (cdr reg))
-             ,(format "  %~a = call i64 @is_truthy_value(%struct.SinObj* %~a)"
-                      istrue (car reg))
-             ,(format "  br i1 %~a, label %~a, label %~a"
-                      istrue xt xf))]
+           `(((% ,(car reg)) = load (* SinObj) (** SinObj) (% ,(cdr reg)))
+             ((% ,istrue) = call i64 (@ is_truthy_value) ([(* SinObj) (% ,(car reg))]))
+             (br i1 (% ,istrue) (label (% ,xt)) (label (% ,xf))))]
           ; I bet we can use 1 less local stack slot by combining the slots of the
           ; true and false branch values here. Only 1 is taken, why do we need 2 slots.
           [`(assign ,x (prim ,op . ,xargs))
@@ -192,85 +186,68 @@
            (define ret (cons (symbol-append base '_val) (hash-ref local-mapping x)))
            (define args (map (λ (a) (cons (symbol-append base '_arg)
                                           (hash-ref local-mapping a)))
-                                 xargs))
-           `(,@(map (λ (a) (format "  %~a = load %struct.SinObj* %~a, align 8"
-                                   (car a) (cdr a)))
-                    args)
-             ,(format "  %~a = call %struct.SinObj* @~a(~a)"
-                      (car ret) (prim-name op)
-                      (string-join (map (λ (a) (format "%struct.SinObj* %~a" (car a))) args) ", "))
-             ,(format "  store volatile %struct.SinObj* %~a, %struct.SinObj** %~a, align 8"
-                      (car ret) (cdr ret)))]
+                             xargs))
+           `(,@(map (λ (a) `((% ,(car a)) = load (* SinObj) (** SinObj) (% ,(cdr a)))) args)
+             ((% ,(car ret)) = call (* SinObj) (@ ,(prim-name op))
+                             (,@(map (λ (a) `[(* SinObj) (% ,(car a))]) args)))
+             (store (* SinObj) (% ,(car ret)) (** SinObj) (% ,(cdr ret))))]
           [`(assign ,x (apply-prim ,op ,xarglist))
            (define base (gensym (symbol-append 'applyprimtmp_ x)))
            (define ret (cons (symbol-append base '_val) (hash-ref local-mapping x)))
            (define arg (cons (symbol-append base '_arg) (hash-ref local-mapping xarglist)))
-           `(,(format "  %~a = load %struct.SinObj* %~a, align 8"
-                      (car arg) (cdr arg))
-             ,(format "  %~a = call %struct.SinObj* @~a(%struct.SinObj ~a)"
-                      (car ret) (applyprim-name op) (car arg))
-             ,(format "  store volatile %struct.SinObj* %~a, %struct.SinObj** %~a, align 8"
-                      (car ret) (cdr ret)))]
+           `(((% ,(car arg)) = load (* SinObj) (** SinObj) (% ,(cdr arg)))
+             ((% ,(car ret)) = call (* SinObj) (@ ,(applyprim-name op))
+                             ([(* SinObj) (% ,(car arg))]))
+             (store (* SinObj) (% ,(car ret)) (** SinObj) (% ,(cdr ret))))]
           [`(assign ,x (make-closure ,xname . ,xfrees))
            (define base (gensym (symbol-append 'makeclo_ x)))
            (define ret (cons (symbol-append base '_val) (hash-ref local-mapping x)))
            (define args (map (λ (a) (cons (symbol-append base '_arg) (hash-ref local-mapping a)))
                              xfrees))
            (define funcaddr (symbol-append base '_funcaddr))
-           `(,@(map (λ (a) (format "  %~a = load %struct.SinObj* %~a, align 8"
-                                   (car a) (cdr a)))
-                    args)
-             ; get block address of function we want.
-             ,(format "  %~a = i8* blockaddress(@main, %~a)" funcaddr xname)
-             ; allocate closure
-             ,(format "  %~a = call %struct.SinObj* @closure_alloc(i64 ~a, i8* %~a)"
-                      (car ret) (length xfrees) funcaddr)
-             ; place free variables
-             ,@(map (λ (a i) (format (string-append
-                                      "  call @closure_place_freevar"
-                                      "(%struct.SinObj* %~a, %struct.SinObj* ~a, i64 ~a)")
-                                     (car ret) (cdr a) i))
+           `(; load all free variables from stack
+             ,@(map (λ (a) `((% ,(car a)) = load (* SinObj) (** SinObj) (% ,(cdr a)))) args)
+             ; Get the address of the function we are calling
+             ((% ,funcaddr) = (* i8) blockaddress (@ main) (% ,xname))
+             ; allocate the closure
+             ((% ,(car ret)) = call (* SinObj) (@ closure_alloc)
+                             ([i64 ,(length xfrees)] [(* i8) ,funcaddr]))
+             ,@(map (λ (a i) `(call (@ closure_place_freevar) ([(* SinObj) ,(car ret)]
+                                                               [(* SinObj) ,(cdr a)]
+                                                               [i64 ,i])))
                     args (range (length args)))
-             ; store it onto stack
-             ,(format "  store volatile %struct.SinObj* %~a, %struct.SinObj** %~a, align 8"
-                      (car ret) (cdr ret)))]
+             ; place fully formed closure on stack.
+             (store (* SinObj) (% ,(car ret)) (** SinObj) (% ,(cdr ret))))]
           [`(assign ,x (env-ref ,_ ,pos))
            ; The 1st argument to env-ref isn't needed here, because we can just refer
            ; to @fpr[1]. We dont actually place the argument as a name anywhere.
            ; woohoo to flat closures.
            (define base (gensym (symbol-append 'envref_ x)))
-           (define ret (symbol-append base '_val))
+           (define ret (cons (symbol-append base '_val) (hash-ref local-mapping x)))
            (define clo (symbol-append base '_clo))
            (define clo-loc (symbol-append base '_cloloc))
-           `(,(format (string-append
-                       "  %~a = getelementptr inbounds"
-                       " %struct.SinObj*, %struct.SinObj** %~a_fp, i64 1")
-                      clo-loc xname)
-             ,(format "  %~a = load %struct.SinObj*, %struct.SinObj** %~a"
-                      clo clo-loc)
-             ,(format "  %~a = call %struct.SinObj* @closure_env_get(%struct.SinObj*, %~a, i64 %~a)"
-                      ret clo pos)
-             ,(format "  store volatile %struct.SinObj* %~a, %struct.SinObj** %~a, align 8"
-                      ret (hash-ref local-mapping x)))]
+           (define cur-fp (symbol-append base '_cur_fp))
+           `(((% ,cur-fp) = load (** SinObj) (*** SinObj) (@ fpr))
+             ((% ,clo-loc) = getelementptr inbounds (* SinObj) (** SinObj) (% ,cur-fp) (i64 ,arg0-pos))
+             ((% ,clo) = load (* SinObj) (** SinObj) (% ,cur-fp))
+             ((% ,(car ret)) = call (* SinObj) (@ closure_env_get) ([(* SinObj) (% ,clo)] [i64 ,pos]))
+             (store (* SinObj) (% ,(car ret)) (** SinObj) (% ,(cdr ret))))]
           [`(assign ,x ',(? boolean? b))
            (define base (gensym (symbol-append 'datbool_ x)))
            (define ret (cons (symbol-append base '_val) (hash-ref local-mapping x)))
-           `(,(format "  %~a = call %struct.SinObj @const_init_~a()"
-                      (car ret) (if b "true" "false"))
-             ,(format "  store volatile %struct.SinObj* %~a, %struct.SinObj** %~a, align 8"
-                      (car ret) (cdr ret)))]
+           (define which (if b 'true 'false))
+           `(((% ,(car ret)) = call (* SinObj) (@ ,(symbol-append 'const_init_ which)) ())
+             (store (* SinObj) (% ,(car ret)) (** SinObj) (% ,(cdr ret))))]
           [`(assign ,x ''())
            (define base (gensym (symbol-append 'datnull_ x)))
            (define ret (cons (symbol-append base '_val) (hash-ref local-mapping x)))
-           `(,(format "  %~a = call %struct.SinObj @const_init_null()" (car ret))
-             ,(format "  store volatile %struct.SinObj* %~a, %struct.SinObj** %~a, align 8"
-                      (car ret) (cdr ret)))]
+           `(((% ,(car ret)) = call (* SinObj) (@ const_init_null) ())
+             (store (* SinObj) (% ,(car ret)) (** SinObj) (% ,(cdr ret))))]
           [`(assign ,x ',(? integer? n))
            (define base (gensym (symbol-append 'datint_ x)))
            (define ret (cons (symbol-append base '_val) (hash-ref local-mapping x)))
-           `(,(format "  %~a = call %struct.SinObj @const_init_int(i64 ~a)" (car ret) n)
-             ,(format "  store volatile %struct.SinObj* %~a, %struct.SinObj** %~a, align 8"
-                      (car ret) (cdr ret)))]
+           `(((% ,(car ret)) = call (* SinObj) (@ const_init_int) ([i64 ,n]))
+             (store (* SinObj) (% ,(car ret)) (** SinObj) (% ,(cdr ret))))]
           [`(assign ,x ',(or (? symbol? s) (? string? s)))
            ; TODO: what is globals.
            (define type (cond [(symbol? s) 'sym] [(string? s) 'str]))
@@ -280,15 +257,21 @@
            (define base (gensym (symbol-append 'dat type '_ x)))
            (define ret (cons (symbol-append base '_val) (hash-ref local-mapping x)))
            (define raw (symbol-append base '_rawglobal))
-           `(,(format "  %~a = getelementptr inbounds [~a x i8], [~a x i8]* @~a, i64 0, i64 0"
-                      raw size size global-name)
-             ,(format "  %~a = call %struct.SinObj* @const_init_~a(i8* %~a)"
-                      (car ret) type-call raw)
-             ,(format "  store volatile %struct.SinObj* %~a, %struct.SinObj** %~a, align 8"
-                      (car ret) (cdr ret)))]
+           `(((% ,raw) = getelementptr inbounds (arr ,size (* i8)) (* (arr ,size (* i8)))
+                       (@ ,global-name) (i64 0) (i64 0))
+             ((% ,(car ret)) = call (* SinObj) (@ ,(symbol-append 'const_init_ type-call))
+                             ([(* i8) (% ,raw)]))
+             (store (* SinObj) (% ,(car ret)) (** SinObj) (% ,(cdr ret))))]
           [`(assign ,x0 ,x1)
            ; TODO: Does this show up at this point in the compiler?
-           (raise 'IMPL-ALIASES!)]
+           (displayln 'WE-DID-AN-ASSIGN??!?!?!?!?)
+           ;; Load x1 from stack
+           ;; Store into x1 via a SinObj* -> SinObj* bitcast.
+           (define base (gensym (symbol-append 'assign_alias)))
+           (define alias (hash-ref local-mapping x0))
+           (define aliased (cons (symbol-append base '_aliased) (hash-ref local-mapping x1)))
+           `(((% ,(car aliased)) = load (* SinObj) (** SinObj) (% ,(cdr aliased)))
+             (store (* SinObj) (% ,(car aliased)) (** SinObj) (% ,alias)))]
           [`(assign ,x (clo-app ,xf ,xarglist))
            (define base (gensym 'assign_app_ x))
            (define clo (cons (symbol-append base '_closure) (hash-ref local-mapping xf)))
@@ -381,62 +364,264 @@
              ; store @retr value into (hash-ref local-mapping x)
              ,(format "  store volatile %struct.SinObj* %~a, %struct.SinObj** %~a, align 8"
                       (car ret) (cdr ret)))]
+
+          [`(assign ,x (call/cc ,xf))
+           (define base (gensym 'tailccc))
+           (define return-value (cons (symbol-append base '_return_value)
+                                      (hash-ref local-mapping x)))
+           (define clo (cons (symbol-append base '_callee_clo) (hash-ref local-mapping xf)))
+           (define has-space (symbol-append '_has_space))
+           (define do-call (symbol-append '_do_call))
+           (define overflow-first (symbol-append '_overflow_first))
+           (define old-record (symbol-append '_old_record))
+           (define at-base (symbol-append '_at_base))
+           (define dont-split (symbol-append '_dont_split))
+           (define do-split (symbol-append '_do_split))
+           (define old-record-next-loc (symbol-append '_old_record_next_loc))
+           (define dont-split-record (symbol-append '_dont_split_record))
+           (define finished-stack-splitting (symbol-append '_finished_stack_splitting))
+           (define old-record-loc (symbol-append '_old_record_loc))
+           (define old-record-stack (symbol-append '_old_record_stack))
+           (define caller-fp (symbol-append '_caller_fp))
+           (define callee-fp (symbol-append '_callee_fp))
+           (define caller-fp-int (symbol-append '_caller_fp_int))
+           (define callee-fp-int (symbol-append '_callee_fp_int))
+           (define old-record-stack-int (symbol-append '_old_record_stack_int))
+           (define cutoff-offset-bytes (symbol-append '_cutoff_offset_bytes))
+           (define cutoff-offset-slots (symbol-append '_cutoff_offset_slots))
+           (define return-fp-offset-bytes (symbol-append '_return_fp_offset_bytes))
+           (define return-fp-offset-slots (symbol-append '_return_fp_offset_slots))
+           (define return-address (symbol-append '_return_address))
+           (define new-top-segment (symbol-append '_new_top_segment))
+           (define stack-record-to-use (symbol-append '_stack_record_to_use))
+           (define continuation-function-handler (symbol-append '_continuation_function_handler))
+           (define cont-clo (symbol-append '_cont_clo))
+           (define size-loc (symbol-append '_size_loc))
+           (define callee-clo-arg-loc (symbol-append '_callee_clo_arg_loc))
+           (define arglist-arg-loc (symbol-append '_arglist_arg_loc))
+           (define arglist-null (symbol-append '_arglist_null))
+           (define arglist (symbol-append '_arglist))
+           (define underflow-addr-void (symbol-append '_underflow_addr_void))
+           (define underflow-addr (symbol-append '_underflow_addr))
+           (define underflow-size-as-sinobj (symbol-append '_underflow_size_as_sinobj))
+           (define underflow-size-as-ptr (symbol-append '_underflow_size_as_ptr))
+           (define clo-fn-part (symbol-append '_clo_fn_part))
+           (define return-label (symbol-append '_return_label))
+           ; Check if we have enough
+           `(((% ,has-space) = call i1 (@ check_for_overflow)
+                             ([(** SinRecord) (@ srr)]
+                              [(*** SinObj) (@ fpr)]
+                              [i64 ,nslots]
+                              ; TODO: use @spr AND NOT proc-sizes, GET RID OF proc-sizes!!
+                              [i64 ,(hash-ref proc-sizes xf)]))
+             (br i1 (% ,has-space) (label (% ,do-call)) (label (% ,overflow-first)))
+             (label ,overflow-first)
+             ; if not, call overflow handler
+             (call void (@ handle_overflow)
+                   ([(** SinRecord) (@ srr)]
+                    [(*** SinObj) (@ fpr)]
+                    [(*** SinObj) (@ spr)]
+                    [(* i8) (blockaddress (@ main) (% underflow_handler))]
+                    [i64 ,nslots]))
+             (br (label (% ,do-call)))
+             ; Get Current record
+             (label ,do-call)
+             ((% ,old-record) = load (* SinRecord) (** SinRecord) (@ srr))
+             ; Check if we are at the base,
+             ((% ,at-base) = call i1 (@ callcc_at_base)
+                           ([(** SinRecord) (@ srr)]
+                            [(*** SinObj) (@ fpr)]))
+             (br i1 (% ,at-base) (label (% ,dont-split)) (label (% ,do-split)))
+             (label ,dont-split)
+             ; Get the location of the stack records link field
+             ; TODO: dont use magic-number 1 for the link field, make a constant variable!!
+             ((% ,old-record-next-loc) = getelementptr inbounds SinRecord (* SinRecord)
+                                       (% ,old-record) (i64 0) (i32 1))
+             ; This is the continuation object if we do not split the stack.
+             ((% ,dont-split-record) = load (* SinRecord) (** SinRecord) (% ,old-record-loc))
+             (br (label (% ,finished-stack-splitting)))
+             (label ,do-split)
+             ; get the stack part of the record
+             ; TODO: don't use magic-number 0 for the stack field, make a constant variable!!
+             ((% ,old-record-loc) = getelementptr inbounds SinRecord (* SinRecord)
+                                       (% ,old-record) (i32 0) (i32 0))
+             ((% ,old-record-stack) = load (** SinObj) (*** SinObj) (% ,old-record-loc))
+             ; get the frame-pointer
+             ; increment it to get the fp of the callee (therefore, the fp of the new segment)
+             ((% ,caller-fp) = load (** SinObj) (*** SinObj) (@ fpr))
+             ((% ,callee-fp) = getelementptr inbounds (* SinObj) (** SinObj)
+                             (% ,caller-fp) (i64 ,nslots))
+             ; Get the number of slots to cutoff.
+             ((% ,callee-fp-int) = ptrtoint (** SinObj) (% ,callee-fp) i64)
+             ((% ,caller-fp-int) = ptrtoint (** SinObj) (% ,caller-fp) i64)
+             ((% ,old-record-stack-int) = ptrtoint (** SinObj) (% ,old-record-stack) i64)
+             ((% ,cutoff-offset-bytes) = sub nuw nsw i64 (% ,callee-fp-int) (% ,old-record-stack-int))
+             ((% ,cutoff-offset-slots = lshr i64 (% ,cutoff-offset-bytes) 3))
+             ; Get the number of slots to the previous frame start from base of old record.
+             ((% ,return-fp-offset-bytes) = sub nuw nsw i64 (% ,caller-fp-int) (% old-record-stack-int))
+             ((% ,return-fp-offset-slots) = lshr i64 (% ,return-fp-offset-bytes) 3)
+             ; Get the return address so we can put it into the old-record's return_address field.
+             ; TODO: compile this line to `%~a = bitcast i8* blockaddress(...) to i8*`!!!
+             ((% ,return-address) = (* i8) blockaddress (@ main) (% ,return-label))
+             ; Split the records!
+             ((% ,new-top-segment) = call (* SinRecord) (@ split_record)
+                                   ([(* SinRecord) (% ,old-record)]
+                                    [(** SinObj) (% ,callee-fp)]
+                                    [i64 (% ,cutoff-offset-slots)]
+                                    [i64 (% ,return-fp-offset-slots)]
+                                    [i8* (% ,return-address)]))
+             ; place the new top segment in @srr
+             (store volatile (* SinRecord) (% ,new-top-segment) (** SinRecord) (@ srr))
+             (br (label (% ,finished-stack-splitting)))
+             ;;; Stack splitting done!
+             (label ,finished-stack-splitting)
+             ((% ,stack-record-to-use) = phi (* SinRecord) ([(% ,old-record) (label ,do-split)]
+                                                            [(% ,dont-split-record) (label ,dont-split)]))
+             ; Create the continuation object
+             ((% ,continuation-function-handler) = (* i8) blockaddress (@ main) (% continuation_function_handler))
+             ((% ,cont-clo) = call (* SinObj) (@ make_continuation_closure)
+                            ([(* SinRecord) (% ,stack-record-to-use)]
+                             [(* i8) (% ,continuation-function-handler)]))
+             ; Get argument locations
+             ((% ,size-loc) = getelementptr inbounds (* SinObj) (** SinObj)
+                            ,callee-fp (i64 ,size-pos))
+             ((% ,callee-clo-arg-loc) = getelementptr inbounds (* SinObj) (** SinObj)
+                                      ,callee-fp (i64 ,arg0-pos))
+             ((% ,arglist-arg-loc) = getelementptr inbounds (* SinObj) (** SinObj)
+                                   ,callee-fp (i64 ,arg1-pos))
+             ; Get closure we are calling (arg0 and the callee)
+             ((% ,(car clo)) = load (* SinObj) (** SinObj) (% ,(cdr clo)))
+             ; Create args
+             ((% ,arglist-null) = call (* SinObj) (@ const_init_null) ())
+             ((% ,arglist) = call (* SinObj) (@ prim_cons) ([(* SinObj) (% ,cont-clo)]
+                                                            [(* SinObj) (% ,arglist-null)]))
+             ;;;; place things on stack
+             ; Use the underflow address in place of the return address
+             ((% ,underflow-addr-void) = (* i8) blockaddress (@ main) (% underflow_handler))
+             ((% ,underflow-addr) = bitcast (i8*) (% ,underflow-addr-void) to (* SinObj))
+             ; Size here at underflow point is -1, this is helpful during overflow handling.
+             ((% ,underflow-size-as-sinobj) = inttoptr i64 -1 to (* SinObj))
+             ; Place arguments onto stack
+             ; callee-fp[0] is return-address (here, underflow), then size, then args.
+             (store (* SinObj) (% ,underflow-addr) (** SinObj) (% ,callee-fp))
+             (store (* SinObj) (% ,underflow-size-as-ptr) (** SinObj) (% ,size-loc))
+             (store (* SinObj) (% ,(car clo)) (** SinObj) (% ,callee-clo-arg-loc))
+             (store (* SinObj) (% ,arglist) (** SinObj) (% ,arglist-arg-loc))
+             ;;;;; Call the damn function.
+             ((% ,clo-fn-part) = call (* i8) (@ closure_get_fn_part) ([(* SinObj) (% ,(car clo))]))
+             (indirectbr (* i8) (% ,clo-fn-part) [TODO: ALL FUNCTION LOCATIONS])
+             ; Make the return point, and clean up.
+             (label ,return-label)
+             ((% ,(car return-value)) = load (* SinObj) (** SinObj) (@ retr))
+             (store (* SinObj) (% ,(car return-value)) (** SinObj) (% ,(cdr return-value))))]
+
           [`(return ,x)
            (define base (gensym (symbol-append 'retval_ x)))
            (define val (cons (symbol-append base '_val) (hash-ref local-mapping x)))
            (define ra (symbol-append base '_ra))
            (define fp (symbol-append base 'fp))
-           ; get value of x from stack
-           `(,(format "  %~a = load %struct.SinObj*, %struct.SinObj** %~a, align 8"
-                      (car val) (cdr val))
+           `(; get value of x from stack
+             ((% ,(car val) = load (* SinObj) (** SinObj) (% ,(cdr val))))
              ; store it into @retr
-             ,(format "  store volatile %struct.SinObj* %~a, %struct.SinObj** @retr, align 8"
-                      (car val))
+             (store (* SinObj) (% ,(car val)) (** SinObj) (@ retr))
              ; load RA into a register from stack
-             ,(format "  %~a = load %struct.SinObj**, %struct.SinObj*** @fpr, align 8"
-                      fp)
-             ,(format "  %~a = load %struct.SinObj*, %struct.SinObj** %~a, align 8"
-                      ra fp)
+             ((% ,fp) = load (** SinObj) (*** SinObj) (@ fpr))
+             ((% ,ra) = load (* SinObj) (** SinObj) (% ,fp))
              ; indirectbr to RA
-             ,(format "  indirectbr i8* %~a, [TODO: all return labels]" ra))]
+             (indirectbr (* i8) (% ,ra) [TODO: ALL RETURN LABELS!!]))]
+
+          [`(return (call/cc ,xf))
            (define base (gensym 'tailccc))
-           (define csr (symbol-append base '_csr))
-           (define csrbp (symbol-append base '_csr_base_ptr))
-           (define csr-base (symbol-append base '_csr_base))
-           (define cur-fp (symbol-append base '_curfp))
-           (define caller-slots-loc (symbol-append base '_caller_slots_loc))
-           (define caller-slots (symbol-append base '_caller_slots))
-           (define csr-int (symbol-append base '_csr_int))
-           (define fp-int (symbol-append base '_fp_int))
-           (define offset-fp-mem (symbol-append base '_offset_fp_mem))
-           (define offset-fp-slots (symbol-append base '_offset_fp_slots))
-           (define offset-caller-mem (symbol-append base '_offset_caller_mem))
-           (define offset-caller-slots (symbol-append base '_offset_caller_slots))
+           (define has-space (symbol-append base '_has_space))
+           (define do-call (symbol-append base '_do_call))
+           (define overflow-first (symbol-append base '_overflow_first))
+           (define at-base (symbol-append base '_at_base))
+           (define dont-split (symbol-append base '_dont_split))
+           (define do-split (symbol-append base '_do_split))
+           (define old-stack-record-next-loc (symbol-append base '_old_stack_record_next_loc))
+           (define dont-split-record (symbol-append base '_dont_split_record))
+           (define finished-stack-stuff (symbol-append base '_finished_stack_stuff))
+           (define old-stack-record (symbol-append base '_old_stack_record))
+           (define old-stack-record-base-loc (symbol-append base '_old_stack_record_base_loc))
+           (define old-stack-record-base (symbol-append base '_old_stack_record_base))
+           (define cur-fp (symbol-append base '_cur_fp))
+           (define cur-fp-int (symbol-append base '_cur_fp_int))
+           (define old-stack-record-base-int (symbol-append base '_old_stack_record_base_int))
+           (define cutoff-offset-bytes (symbol-append base '_cutoff_offset_bytes))
+           (define cuttoff-offset-slots (symbol-append base '_cutoff_offset_slots))
+           (define slots-in-caller-loc (symbol-append base '_slots_in_caller_loc))
+           (define slots-in-caller-ptr (symbol-append base '_slots_in_caller_ptr))
+           (define slots-in-caller (symbol-append base '_slots_in_caller))
+           (define negated-slots-in-caller (symbol-append base '_negated_slots_in_caller))
+           (define caller-fp-loc (symbol-append base '_caller_fp_loc))
+           (define caller-fp-loc-int (symbol-append base '_caller_fp_loc_int))
+           (define caller-fp-offset-bytes (symbol-append base '_caller_fp_offset_bytes))
+           (define caller-fp-offset-slots (symbol-append base '_caller_fp_offset_slots))
+           (define ret-addr-sinobjptr (symbol-append base '_ret_addr_sinobjptr))
+           (define ret-addr (symbol-append base '_ret_addr))
            (define new-top-segment (symbol-append base '_new_top_segment))
+           (define cutoff-offset-slots (symbol-append base '_cutoff_offset_slots))
+           (define cont-clo (symbol-append base '_cont_clo))
+           (define size-loc (symbol-append base '_size_loc))
+           (define clo-arg-loc (symbol-append base '_clo_arg_loc))
+           (define arglist-arg-loc (symbol-append base '_arglist_arg_loc))
+           (define arglist-null (symbol-append base '_arglist_null))
+           (define arglist (symbol-append base '_arglist))
+           (define clo (cons (symbol-append base '_clo_arg_local) (hash-ref local-mapping xf)))
            (define underflow-addr-raw (symbol-append base '_underflow_addr_raw))
            (define underflow-addr (symbol-append base '_underflow_addr))
-           (define clo (cons (symbol-append base '_clo) (hash-ref local-mapping xf)))
-           (define old-srr (symbol-append base '_oldsrr))
-           (define ret-addr-cast (symbol-append base '_retaddrcast))
-           (define ret-addr (symbol-append base '_retaddr))
-           (define cont-func-handler-loc (symbol-append base '_cont_funchandlerloc))
-           (define cont-clo (symbol-append base '_cont_clo))
-           (define arglistnull (symbol-append base '_arglist_null))
-           (define arglist (symbol-append base '_arglist))
-           (define clo-arg-loc (symbol-append base '_clo_arg_loc))
-           (define arglist-loc (symbol-append base '_arg_list_loc))
+           (define underflow-size-as-ptr (symbol-append base '_underflow_size_as_ptr))
            (define clo-fn-part (symbol-append base '_clo_fn_part))
-           [`(return (call/cc ,xf))
-            ; TODO: when we are already at the base, we shouldnt do a split_record call...
-           `(
+           (define stack-record-to-use (symbol-append base '_stack_record_to_use))
+           `(; Check if we will overflow, jump to overflow handler if we will.
+             ((% ,has-space) = call i1 (@ check_for_overflow)
+                             ([(** SinRecord) (@ srr)]
+                              [(*** SinObj) (@ fpr)]
+                              [(*** SinObj) (@ spr)]
+                              [i64 0]))
+
+             ,(format (string-append "  %~a = call i1 @check_for_overflow"
+                                     "(%struct.SinRecord** @srr, %struct.SinObj*** @fpr"
+                                     ", i64 ~a, i64 ~a)")
+                      ; use 0 here because the number of caller slots doesn't matter!
+                      ; because its a tail call!
+                      has-space 0 (hash-ref proc-sizes xf))
+             ,(format "  br i1 %~a label %~a, label %~a"
+                      has-space do-call overflow-first)
+             ,(format "%~a:" overflow-first)
+             ,(format (string-append "  call void @handle_overflow(%struct.SinRecord** @srr, "
+                                     "%struct.SinObj*** @fpr, %struct.SinObj*** @spr,"
+                                     " i8* blockaddress(@main, %underflow_handler), i64 ~a)")
+                      nslots)
+             ,(format "br label %~a" do-call)
+             ; Check if we have enough
+             ; if not, call overflow handler
+             ; dont need to add a frame though, cause tail-call. Just overwrite @fpr as we do here.
              ; Get Current record
+             ,(format "%~a:" do-call)
              ,(format "  %~a = load %struct.SinRecord*, %struct.SinRecord** @srr, align 8"
                       old-stack-record)
+             ; Check if we are at the base,
+             ,(format (string-append "%~a = call i1 @callcc_at_base"
+                                     "(%struct.SinRecord** @srr, %struct.SinObj*** @fpr)")
+                      at-base)
+             ,(format "  br i1 %~a, label %~a, label %~a"
+                      at-base dont-split do-split)
+             ,(format "%~a:" dont-split)
+             ; Get the location of the stack records link field
+             ,(format "  %~a = getelementptr inbounds %struct.SinRecord, %struct.SinRecord* %~a, i64 0, i32 1"
+                      old-stack-record-next-loc old-stack-record)
+             ; get the value in that location (the pointer to the link)
+             ,(format "  %~a = load %struct.SinRecord*, %struct.SinRecord** %~a, align 8"
+                      dont-split-record old-stack-record-next-loc)
+             ,(format "  br label %~a"
+                      finished-stack-stuff)
+             ,(format "%~a:" do-split)
              ; get the stack part of the record
-             ,(,(format (string-append "  %~a = getelementptr inbounds "
-                                       "%struct.SinRecord, %struct.SinRecord* %~a, "
-                                       "i32 0, i32 0")
-                        old-stack-record-base-loc old-stack-record))
+             ,(format (string-append "  %~a = getelementptr inbounds "
+                                     "%struct.SinRecord, %struct.SinRecord* %~a, "
+                                     "i32 0, i32 0")
+                      old-stack-record-base-loc old-stack-record)
              ,(format "  %~a = load %struct.SinObj**, %struct.SinObj*** %~a, align 8"
                       old-stack-record-base old-stack-record-base-loc)
              ; get the frame-pointer, which will also be the base of the new segment.
@@ -470,14 +655,45 @@
                       caller-fp-offset-slots caller-fp-offset-bytes)
              ; Get the return address in the code stream for the old record.
              ,(format "  %~a = load %struct.SinObj*, %struct.SinObj** %~a, align 8"
-                      ret-addr-sinobj cur-fp)
+                      ret-addr-sinobjptr cur-fp)
              ,(format "  %~a = bitcast %struct.SinObj* %~a i8*"
-                      ret-addr ret-addr-sinobj)
+                      ret-addr ret-addr-sinobjptr)
              ; Split the records!
              ,(format (string-append "  %~a = call %struct.SinRecord* @split_record"
-                                     "(%struct.SinRecord* %~a, SinObj** %~a, i64 %~a, i64 %~a, i8* %~a)")
+                                     "(%struct.SinRecord* %~a, SinObj** %~a, "
+                                     "i64 %~a, i64 %~a, i8* %~a)")
                       new-top-segment old-stack-record cur-fp
                       cutoff-offset-slots caller-fp-offset-slots ret-addr)
+             ; place the new top segment in @srr
+             ,(format "  store volatile %struct.SinRecord* %~a, %struct.SinRecord** @srr, align 8"
+                      new-top-segment)
+             ,(format "  br label %~a"
+                      finished-stack-stuff)
+             ;;; Stack splitting done!
+             ,(format "%~a:" finished-stack-stuff)
+             ,(format "  %~a = phi %struct.SinRecord* [%~a, %~a], [%~a, %~a]"
+                      stack-record-to-use old-stack-record do-split dont-split-record dont-split)
+             ; Create the continuation object
+             ,(format (string-append "  %~a = call %struct.SinObj* @make_continuation_closure"
+                                     "(%struct.SinRecord* %~a, i8* "
+                                     "blockaddress(@main, %continuation_function_handler))")
+                      cont-clo stack-record-to-use)
+             ; Get argument locations
+             ,(format "  %~a = getelementptr inbounds %struct.SinObj*, %struct.SinObj** %~a, i64 ~a"
+                      size-loc cur-fp size-pos)
+             ,(format "  %~a = getelementptr inbounds %struct.SinObj*, %struct.SinObj** %~a, i64 ~a"
+                      clo-arg-loc cur-fp arg0-pos)
+             ,(format "  %~a = getelementptr inbounds %struct.SinObj*, %struct.SinObj** %~a, i64 ~a"
+                      arglist-arg-loc cur-fp arg1-pos)
+             ; Create args
+             ,(format "  %~a = call %struct.SinObj* @const_init_null()"
+                      arglist-null)
+             ,(format "  %~a = call %struct.SinObj* @prim_cons(%struct.SinObj* %~a, %struct.SinObj %~a)"
+                      arglist cont-clo arglist-null)
+             ; Get closure we are calling
+             ,(format "  %~a = load %struct.SinObj*, %struct.SinObj** %~a, align 8"
+                      (car clo) (cdr clo))
+             ;;;; place things on stack
              ; place the underflow address in place of the return address
              ,(format "  %~a = i8* blockaddress(@main, %underflow_handle)"
                       underflow-addr-raw)
@@ -485,50 +701,22 @@
                       underflow-addr underflow-addr-raw)
              ,(format "  store %struct.SinObj* %~a, %struct.SinObj** %~a, align 8"
                       underflow-addr cur-fp)
-             ; place the new top segment in @srr
-             ,(format "  store volatile %struct.SinRecord* %~a, %struct.SinRecord** @srr, align 8"
-                      new-top-segment)
-             ; Create the continuation object
-             ,(format (string-append "  %~a = call %struct.SinObj* @make_continuation_closure"
-                                     "(%struct.SinRecord* %~a, i8* "
-                                     "blockaddress(@main, %continuation_function_handler))")
-                      cont-clo old-stack-record)
-             ; TODO: Ensure there is enough stack space for the callee
-             ; Get argument locations
-             ,(format "  %~a = getelementptr inbounds %struct.SinObj*, %struct.SinObj** %~a, i64 %~a"
-                      clo-arg-loc cur-fp arg0-pos)
-             ,(format "  %~a = getelementptr inbounds %struct.SinObj*, %struct.SinObj** %~a, i64 %~a"
-                      arglist-arg-loc cur-fp arg1-pos)
-             ; Create args
-             ,(format "  %~a = ge"))]
-          [`(return (call/cc ,xf))
-           `(
-             ; call the damn function.
-             ; TODO: ensure there is stack space!
-             ,(format "  %~a = call %struct.SinObj* @const_init_null()"
-                      arglistnull)
-             ,(format "  %~a = call %struct.SinObj* @prim_cons(%struct.SinObj* %~a, %struct.SinObj* %~a)"
-                      arglist cont-clo arglistnull)
-             ; underflow handler is set at *@fpr[0]
-             ; dont need to set size cause its underflow under this frame
-             ; sooo we need to set the closure as *@fpr[2] and cont-clo as *@fpr[3]
-             ,(format "  %~a = getelementptr inbounds %struct.SinObj*, %struct.SinObj** %~a, i64 %~a"
-                      clo-arg-loc cur-fp arg0-pos)
-             ,(format "  %~a = getelementptr inbounds %struct.SinObj*, %struct.SinObj** %~a, i64 %~a"
-                      arglist-loc cur-fp arg1-pos)
-             ,(format "  %~a = load %struct.SinObj*, %struct.SinObj** %~a, align 8"
-                      (car clo) (cdr clo))
+             ; Size here at underflow point is -1, this is helpful during overflow handling.
+             ,(format "  %~a = inttoptr i64 -1 to %struct.SinObj*"
+                      underflow-size-as-ptr)
+             ; Store arguments
+             ,(format "  store volatile %struct.SinObj %~a, %struct.SinObj** %~a, align 8"
+                      underflow-size-as-ptr size-loc)
              ,(format "  store volatile %struct.SinObj* %~a, %struct.SinObj** %~a, align 8"
                       (car clo) clo-arg-loc)
              ,(format "  store volatile %struct.SinObj* %~a, %struct.SinObj** %~a, align 8"
-                      arglist arglist-loc)
-             ; indirectbr to the function!!!
+                      arglist arglist-arg-loc)
+             ;;;;; Call the damn function.
              ,(format "  %~a = call i8* @closure_get_fn_part(%struct.SinObj* %~a)"
                       clo-fn-part (car clo))
-             ,(format "  indirectbr i8* %~a [TODO: ALL FUNCTION LOCATIONS!]"
+             ,(format "  indirectbr i8* %~a, [TODO: All function locations]"
                       clo-fn-part))]
-          [`(assign ,x (call/cc ,xf))
-           `()]
+
           [`(return (clo-app ,xf ,xargs))
            ; we can do Tail-Call-Elimination!!!!
            ; BUT its not safe unless we ensure that there's enough stack space

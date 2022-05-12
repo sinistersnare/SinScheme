@@ -56,9 +56,10 @@ SinObj* unwrap_clo(SinObj* clo_obj, const char* fn) {
 
 
 // TODO: rename this to make_record.
-SinRecord* make_frame(SinRecord* cur_stack_record) {
+SinRecord* make_frame(SinRecord* cur_stack_record, SinObj*** spr) {
     SinRecord* sf = (SinRecord*) malloc(sizeof(SinRecord));
     SinObj** new_stack = (SinObj**) calloc(STACK_SIZE, sizeof(SinObj*));
+    *spr = new_stack + STACK_SIZE - 100; // TODO: is this corrrect (:
     sf->stack = new_stack;
     sf->size = STACK_SIZE / sizeof(SinObj*);
     sf->next = cur_stack_record;
@@ -67,8 +68,8 @@ SinRecord* make_frame(SinRecord* cur_stack_record) {
 
 /**
  * old_stack_record is the 'old' record
- * new_segment_base is the base pointe of the new segment
- * cutoff_slots, #slots (from old base) in the old part of the record to keep
+ * new_segment_base is the base pointer of the new segment
+ * cutoff_slots, #slots (from old base) in the old part of the record
  *               (the new size of the old record)
  * ret_fp_slots is the index of the fp in the old record when reinstantiating.
  * ret_addr is the location in the code stream to return to when reinstantiating.
@@ -118,7 +119,7 @@ void* closure_get_fn_part(SinObj* clo) {
     return reinterpret_cast<void*>(clo_obj[0].valueptr);
 }
 
-void* handle_underflow(SinRecord** srr, SinObj*** fpr) {
+void* handle_underflow(SinRecord** srr, SinObj*** fpr, SinObj*** spr) {
     SinRecord* cur = *srr;
     SinRecord* next = cur->next;
     cur->next = next->next;
@@ -127,17 +128,66 @@ void* handle_underflow(SinRecord** srr, SinObj*** fpr) {
     s64 o = next->return_fp_offset;
     void* ret_addr = next->return_address;
     if (m >= n) {
+        // cur->stack may not be the root of the allocation. So we can't free it.
         // TODO: garbage collection (:
-        free(cur->stack);
         cur->stack = (SinObj**) calloc(STACK_SIZE, sizeof(SinObj*));
+        *spr = new_stack + STACK_SIZE - 100; // TODO: is this corrrect (:
     }
     memcpy(cur->stack, next->stack, m * 8);
     *fpr = &cur->stack[o];
     return ret_addr;
 }
 
-??? handle_overflow(SinRecord** srr, SinOBj*** fpr) {
-    ///
+// returns true if we are safe, false if we will overflow.
+bool check_for_overflow(SinRecord** srr, SinObj*** fpr, SinObj*** spr, s64 caller_slots) {
+    return reinterpret_cast<s64>(*fpr + caller_slots) < reinterpret_cast<s64>(*spr);
+}
+
+bool callcc_at_base(SinRecord** srr, SinObj*** fpr) {
+    return (*srr)->stack == *fpr;
+}
+
+void handle_overflow(SinRecord** srr, SinObj*** fpr, SinObj*** spr,
+                     void* underflow_loc, s64 num_slots_in_overflower) {
+    s64 amt_to_descend;
+    s64 amt_to_copy = num_slots_in_overflower;
+    bool copy_entire = false;
+    SinObj** descent = *fpr;
+    for (int i=0; i < 4; i++) {
+        amt_to_descend = reinterpret_cast<s64>(descent[1]);
+        if (amt_to_descend == -1) {
+            copy_entire = true;
+            break;
+        }
+        amt_to_copy += amt_to_descend;
+        num_frames_to_copy++;
+        descent -= amt_to_descend;
+    }
+
+    if (copy_entire) {
+        // here, it seems the stack that overflowed is super small, so lets
+        // just completely copy it into a bigger one.
+        // So full is going to be dropped.
+        SinRecord* full = *srr;
+        // go past the full stack
+        SinRecord* empty_record = make_frame(full->next, spr);
+        assert (descent == full->stack);
+        memcpy(empty_record->stack, descent, amt_to_copy * 8);
+        *srr = empty_record;
+        *fpr = empty_record->stack + amt_to_copy - num_slots_in_overflower;
+    } else {
+        SinRecord* full = *srr;
+        SinRecord* empty_record = make_frame(full, spr);
+        full->return_address = reinterpret_cast<void*>(descent[0]);
+        full->size = (reinterpret_cast<s64>(descent) -
+                      reinterpret_cast<s64>(full->stack)) / 8
+        full->return_fp_offset = full->size - amt_to_descend;
+        memcpy(empty_record->stack, descent, amt_to_copy * 8);
+        empty_record->stack[0] = reinterpret_cast<SinObj*>(underflow_loc);
+        empty_record->stack[1] = reinterpret_cast<SinObj*>(-1);
+        *srr = empty_record;
+        *fpr = empty_record->stack + amt_to_copy - num_slots_in_overflower;
+    }
 }
 
 int main() {

@@ -1,12 +1,14 @@
 (define (boop x)
-  (define y x)
-  (define z x)
+  (define y (+ x 3))
+  (define z (- 4 x))
   (+ y z))
 
 (boop (+ 2 3))
 
 (define x 5)
-(define (displayln v) (display v) (display "\n"))
+(define (displayln v)
+  (display v)
+  (display "\n"))
 (displayln "Hello, World!")
 (* (* 5 5) x)
 

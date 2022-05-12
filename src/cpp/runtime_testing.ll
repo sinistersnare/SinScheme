@@ -67,8 +67,7 @@ define void @splitstack() {
 
 
 define i32 main() {
-    call void @morestack() ; sets up stack
-    call void @start_program() ; starts GC / runtime
+    call void @start_program(@srr, @fpr, @spr) ; Starts runtime
     ; arguments are left uninitialized, as main doesnt have any.
     %curfp = load %struct.SinObj**, %struct.SinObj*** @fpr, align 8
     %raloc = getelementptr inbounds %struct.SinObj*, %struct.SinObj** %curfp, i64 0
@@ -137,7 +136,8 @@ program_finished:
     ; dont worry about cleaning up main, just exit the program
     ret i32 0
 underflow_handler:
-    ...
+    %ret_addr = call i8* handle_underflow(%struct.SinRecord** @srr, %struct.SinObj*** @fpr, %struct.SinObj*** @spr)
+    indirectbr i8* %red_addr, [TODO: ALL RETURN POINTS!]
 continuation_function_handler:
     ;; Put arguments in registers
     %fp = load %struct.SinObj**, %struct.SinObj*** @fpr, align 8
@@ -147,7 +147,7 @@ continuation_function_handler:
     %ret_arglist = load %struct.SinObj*, %struct.SinObj** %ret_arglist_loc, align 8
     %ret_arg = call @struct.SinObj* @prim_car(%ret_arglist)
     ;; Get the continuation parts
-    ; (called get_env_part, but this is a continuation, not a closure!)
+    ; (It's called `get_env_part`, but this is a continuation, not a closure!)
     %cont_sr_ptr = call @closure_get_env_part(%arg0)
     %cont_sr = bitcast i8* %cont_sr_ptr to %struct.SinRecord*
     %cont_stack_loc = getelementptr inbounds %struct.SinRecord, %struct.SinRecord* %cont_sr, i64 0, i32 0
