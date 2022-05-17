@@ -19,10 +19,15 @@ SinObj* map_to_sin(Map* m);
 Map* unwrap_hash(SinObj* hash_obj, const char* fn);
 
 void debug_output_registers(SinRecord** srr, SinObj*** fpr, SinObj*** spr, SinObj** retr) {
+    // Used to help me debug sometimes :)
     // call like:
     //   call void @debug_output_registers(%struct.SinRecord** @srr, %struct.SinObj*** @fpr, %struct.SinObj*** @spr, %struct.SinObj** @retr)
     printf("Register Values:\n");
-    printf("srr:`%p`,fpr:`%p`,spr:`%p`,retr:`%p`\n", *srr, *fpr, *spr, *retr);
+    printf("srr:`%p`,fpr:`%p`,spr:`%p`,retr:`%p`\n",
+            reinterpret_cast<void*>(*srr),
+            reinterpret_cast<void*>(*fpr),
+            reinterpret_cast<void*>(*spr),
+            reinterpret_cast<void*>(*retr));
 }
 
 /// Alloc an amount of SinObjs.
@@ -295,7 +300,6 @@ void* handle_continuation_function(SinRecord** srr, SinObj*** fpr,
 
 void start_runtime(SinRecord** srr, SinObj*** fpr, SinObj*** spr) {
     // This will eventually also start the GC! Assuming I make a GC :)
-    printf("Starting program!\n");
     *srr = make_record(nullptr, spr);
     *fpr = (*srr)->stack;
 }

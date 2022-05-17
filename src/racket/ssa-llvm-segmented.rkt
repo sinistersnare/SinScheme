@@ -359,6 +359,9 @@
       "define i32 @main() {"
       ,(string-append "  call void @start_runtime(%struct.SinRecord** @srr,"
                       " %struct.SinObj*** @fpr, %struct.SinObj*** @spr)")
+      "%base_fp = load volatile %struct.SinObj**, %struct.SinObj*** @fpr, align 8"
+      "%finished_loc = bitcast i8* blockaddress(@main, %program_finished) to %struct.SinObj*"
+      "store volatile %struct.SinObj* %finished_loc, %struct.SinObj** %base_fp, align 8"
       "  br label %main"))
   (define end-of-program
     `("underflow_handler:"
