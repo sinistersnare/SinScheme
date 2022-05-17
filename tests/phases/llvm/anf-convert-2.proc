@@ -1,0 +1,17 @@
+((proc
+   (main mainenv3594009 mainargs3594010)
+   (let ((anf-bind3368728 (make-closure clo3594008)))
+     (let ((anf-datum3368729 'a))
+       (let ((args3594006$anf-bind3368728$0 '()))
+         (let ((args3594006$anf-bind3368728$1 (prim cons anf-datum3368729 args3594006$anf-bind3368728$0)))
+           (let ((anf-bind3368730 (clo-app anf-bind3368728 args3594006$anf-bind3368728$1)))
+             (let ((anf-datum3368731 '1))
+               (let ((x anf-datum3368731))
+                 (let ((anf-datum3368732 '2))
+                   (let ((y anf-datum3368732))
+                     (let ((anf-bind3368733 (prim list x y x)))
+                       (let ((admin-toplevel-bnd3594007 (prim list anf-bind3368730 anf-bind3368733)))
+                         admin-toplevel-bnd3594007))))))))))))
+  (proc
+   (clo3594008 clo3594008_cloarg arglist35940050)
+   (let ((x (prim car arglist35940050))) (let ((anf-datum3368727 '1)) anf-datum3368727))))

@@ -1,0 +1,7 @@
+(let ((a (let ((anf-datum3368679 '2)) anf-datum3368679)))
+  (let ((b
+        (let ((c (let ((anf-datum3368680 '4)) anf-datum3368680)))
+          (let ((anf-datum3368681 '3))
+            (let ((anf-bind3368682 (prim + c c)))
+              (prim + anf-datum3368681 anf-bind3368682))))))
+    (let ((anf-bind3368683 (prim * a b))) (prim + a anf-bind3368683))))

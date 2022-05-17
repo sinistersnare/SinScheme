@@ -1,1 +1,63 @@
-(let (($promise? (lambda ($p) (if (prim cons? $p) (prim eq? (prim car $p) (quote %%promise)) (quote #f))))) (let (($%raise-handler (quote ()))) (let (($%wind-stack (prim make-vector (quote 1) (quote ())))) (let (($%common-tail (lambda ($x $y) (let (($lx (prim length $x)) ($ly (prim length $y))) (let (($loop (prim make-vector (quote 1) (quote ())))) (let (($_1854 (prim vector-set! $loop (quote 0) (lambda ($0x $0y) (if (prim eq? $0x $0y) $0x ((prim vector-ref $loop (quote 0)) (prim cdr $0x) (prim cdr $0y))))))) ((prim vector-ref $loop (quote 0)) (if (prim > $lx $ly) (prim drop $x (prim - $lx $ly)) $x) (if (prim > $ly $lx) (prim drop $y (prim - $ly $lx)) $y)))))))) (let (($%do-wind (lambda ($new) (let (($tail ($%common-tail $new (prim vector-ref $%wind-stack (quote 0))))) (let (($_1855 (let (($f (prim make-vector (quote 1) (quote ())))) (let (($_1856 (prim vector-set! $f (quote 0) (lambda ($l) (if (prim not (prim eq? $l $tail)) (let (($_1857 (prim vector-set! $%wind-stack (quote 0) (prim cdr $l)))) (let (($_1858 ((prim cdr (prim car $l))))) ((prim vector-ref $f (quote 0)) (prim cdr $l)))) (prim void)))))) ((prim vector-ref $f (quote 0)) (prim vector-ref $%wind-stack (quote 0))))))) (let (($0f (prim make-vector (quote 1) (quote ())))) (let (($_1859 (prim vector-set! $0f (quote 0) (lambda ($0l) (if (prim not (prim eq? $0l $tail)) (let (($_1860 ((prim vector-ref $0f (quote 0)) (prim cdr $0l)))) (let (($_1861 ((prim car (prim car $0l))))) (prim vector-set! $%wind-stack (quote 0) $0l))) (prim void)))))) ((prim vector-ref $0f (quote 0)) $new)))))))) (let (($ccstack (prim make-vector (quote 1) (quote ()))) ($fail (prim make-vector (quote 1) (quote ()))) ($assert (prim make-vector (quote 1) (quote ()))) ($amb (prim make-vector (quote 1) (quote ())))) (let (($letrec1862 (quote ())) ($letrec1863 (lambda () (if (prim null? (prim vector-ref $ccstack (quote 0))) ($%raise-handler (quote no-solution)) (let (($next-cc (prim car (prim vector-ref $ccstack (quote 0))))) (let (($_1866 (prim vector-set! $ccstack (quote 0) (prim cdr (prim vector-ref $ccstack (quote 0)))))) ($next-cc $next-cc)))))) ($letrec1864 (lambda ($b) (if $b (quote #t) ((prim vector-ref $fail (quote 0)))))) ($letrec1865 (lambda ($lst) (let (($0lst (prim make-vector (quote 1) $lst))) (let (($cc (call/cc (lambda ($%k) ((lambda ($u) ($u $u)) (let (($%saved-stack (prim vector-ref $%wind-stack (quote 0)))) (lambda ($%x) (let (($_1867 (if (prim eq? $%saved-stack (prim vector-ref $%wind-stack (quote 0))) (prim void) ($%do-wind $%saved-stack)))) ($%k $%x))))))))) (if (prim null? (prim vector-ref $0lst (quote 0))) ((prim vector-ref $fail (quote 0))) (let (($head (prim car (prim vector-ref $0lst (quote 0))))) (let (($_1868 (prim vector-set! $0lst (quote 0) (prim cdr (prim vector-ref $0lst (quote 0)))))) (let (($_1869 (prim vector-set! $ccstack (quote 0) (prim cons $cc (prim vector-ref $ccstack (quote 0)))))) $head))))))))) (let (($_1870 (prim vector-set! $ccstack (quote 0) $letrec1862))) (let (($_1871 (prim vector-set! $fail (quote 0) $letrec1863))) (let (($_1872 (prim vector-set! $assert (quote 0) $letrec1864))) (let (($_1873 (prim vector-set! $amb (quote 0) $letrec1865))) (let (($a ((prim vector-ref $amb (quote 0)) (quote (2 3 4 5)))) ($0b ((prim vector-ref $amb (quote 0)) (quote (2 3 4 5 6)))) ($c ((prim vector-ref $amb (quote 0)) (quote (2 3 4 5))))) (let (($_1874 ((prim vector-ref $assert (quote 0)) (prim = (prim + (prim * $a $a) (prim * $0b $0b)) (prim * $c $c))))) (prim list (quote solution) $a $0b $c))))))))))))))
+(let (($promise? (lambda ($p) (if (prim cons? $p) (prim eq? (prim car $p) '%%promise) '#f))))
+  (let (($%raise-handler '()))
+    (let (($%wind-stack (prim make-vector '1 '())))
+      (let (($%common-tail
+             (lambda ($x $y)
+               (let (($lx (prim length $x)) ($ly (prim length $y)))
+                 (let (($loop (prim make-vector '1 '())))
+                   (let (($_1854 (prim vector-set! $loop '0 (lambda ($0x $0y) (if (prim eq? $0x $0y) $0x ((prim vector-ref $loop '0) (prim cdr $0x) (prim cdr $0y)))))))
+                     ((prim vector-ref $loop '0) (if (prim > $lx $ly) (prim drop $x (prim - $lx $ly)) $x) (if (prim > $ly $lx) (prim drop $y (prim - $ly $lx)) $y))))))))
+        (let (($%do-wind
+               (lambda ($new)
+                 (let (($tail ($%common-tail $new (prim vector-ref $%wind-stack '0))))
+                   (let (($_1855
+                          (let (($f (prim make-vector '1 '())))
+                            (let (($_1856
+                                   (prim
+                                    vector-set!
+                                    $f
+                                    '0
+                                    (lambda ($l)
+                                      (if (prim not (prim eq? $l $tail))
+                                        (let (($_1857 (prim vector-set! $%wind-stack '0 (prim cdr $l)))) (let (($_1858 ((prim cdr (prim car $l))))) ((prim vector-ref $f '0) (prim cdr $l))))
+                                        (prim void))))))
+                              ((prim vector-ref $f '0) (prim vector-ref $%wind-stack '0))))))
+                     (let (($0f (prim make-vector '1 '())))
+                       (let (($_1859
+                              (prim
+                               vector-set!
+                               $0f
+                               '0
+                               (lambda ($0l)
+                                 (if (prim not (prim eq? $0l $tail))
+                                   (let (($_1860 ((prim vector-ref $0f '0) (prim cdr $0l)))) (let (($_1861 ((prim car (prim car $0l))))) (prim vector-set! $%wind-stack '0 $0l)))
+                                   (prim void))))))
+                         ((prim vector-ref $0f '0) $new))))))))
+          (let (($ccstack (prim make-vector '1 '())) ($fail (prim make-vector '1 '())) ($assert (prim make-vector '1 '())) ($amb (prim make-vector '1 '())))
+            (let (($letrec1862 '())
+                  ($letrec1863
+                   (lambda ()
+                     (if (prim null? (prim vector-ref $ccstack '0))
+                       ($%raise-handler 'no-solution)
+                       (let (($next-cc (prim car (prim vector-ref $ccstack '0)))) (let (($_1866 (prim vector-set! $ccstack '0 (prim cdr (prim vector-ref $ccstack '0))))) ($next-cc $next-cc))))))
+                  ($letrec1864 (lambda ($b) (if $b '#t ((prim vector-ref $fail '0)))))
+                  ($letrec1865
+                   (lambda ($lst)
+                     (let (($0lst (prim make-vector '1 $lst)))
+                       (let (($cc
+                              (call/cc
+                               (lambda ($%k)
+                                 ((lambda ($u) ($u $u))
+                                  (let (($%saved-stack (prim vector-ref $%wind-stack '0)))
+                                    (lambda ($%x) (let (($_1867 (if (prim eq? $%saved-stack (prim vector-ref $%wind-stack '0)) (prim void) ($%do-wind $%saved-stack)))) ($%k $%x)))))))))
+                         (if (prim null? (prim vector-ref $0lst '0))
+                           ((prim vector-ref $fail '0))
+                           (let (($head (prim car (prim vector-ref $0lst '0))))
+                             (let (($_1868 (prim vector-set! $0lst '0 (prim cdr (prim vector-ref $0lst '0)))))
+                               (let (($_1869 (prim vector-set! $ccstack '0 (prim cons $cc (prim vector-ref $ccstack '0))))) $head)))))))))
+              (let (($_1870 (prim vector-set! $ccstack '0 $letrec1862)))
+                (let (($_1871 (prim vector-set! $fail '0 $letrec1863)))
+                  (let (($_1872 (prim vector-set! $assert '0 $letrec1864)))
+                    (let (($_1873 (prim vector-set! $amb '0 $letrec1865)))
+                      (let (($a ((prim vector-ref $amb '0) '(2 3 4 5))) ($0b ((prim vector-ref $amb '0) '(2 3 4 5 6))) ($c ((prim vector-ref $amb '0) '(2 3 4 5))))
+                        (let (($_1874 ((prim vector-ref $assert '0) (prim = (prim + (prim * $a $a) (prim * $0b $0b)) (prim * $c $c))))) (prim list 'solution $a $0b $c))))))))))))))

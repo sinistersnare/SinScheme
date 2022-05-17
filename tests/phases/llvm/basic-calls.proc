@@ -1,0 +1,28 @@
+; Started as
+#;
+(let ([g ((lambda (y) y) '5)])
+  (let ([h ((lambda (z) (prim + z '3)) '7)])
+    (prim + g h)))
+
+((proc
+   (main mainenv4964814 mainargs4964815)
+   (let ((anf-bind4962025 (make-closure clo4964813)))
+     (let ((anf-datum4962026 '5))
+       (let ((args4964807$anf-bind4962025$0 '()))
+         (let ((args4964807$anf-bind4962025$1
+                (prim cons anf-datum4962026 args4964807$anf-bind4962025$0)))
+           (let ((g (clo-app anf-bind4962025 args4964807$anf-bind4962025$1)))
+             (let ((anf-bind4962028 (make-closure clo4964812)))
+               (let ((anf-datum4962029 '7))
+                 (let ((args4964809$anf-bind4962028$0 '()))
+                   (let ((args4964809$anf-bind4962028$1
+                          (prim cons anf-datum4962029 args4964809$anf-bind4962028$0)))
+                     (let ((h (clo-app anf-bind4962028 args4964809$anf-bind4962028$1)))
+                       (let ((admin-toplevel-bnd4964811 (prim + g h)))
+                         admin-toplevel-bnd4964811))))))))))))
+  (proc (clo4964813 clo4964813_cloarg arglist49648060) (let ((y (prim car arglist49648060))) y))
+  (proc
+   (clo4964812 clo4964812_cloarg arglist49648080)
+   (let ((z (prim car arglist49648080)))
+     (let ((anf-datum4962027 '3))
+       (let ((admin-toplevel-bnd4964810 (prim + z anf-datum4962027))) admin-toplevel-bnd4964810)))))

@@ -50,6 +50,5 @@ uncaught exception: '(exception vector-set!-out-of-bounds (vector-set! v 123 456
 To guard against this, add a `guard`, or dont use vectors,
 do everything with lambda, datums, and function application.
 Lambda calculus is all you really need, why are you even reading this,
-its documentation for a language that isnt real. Unless this is my professor,
-in which case, hi! Dont read all of this!
+its documentation for a language that isnt real! Who are you??
 

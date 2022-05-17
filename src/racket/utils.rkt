@@ -6,9 +6,8 @@
 (provide prim? reserved? prims-list symbol-append c-name prim-name applyprim-name
          c-hex-encode encoded-str-length datum? read-begin
          test-top-level test-desugar test-alphatize test-anf-convert
-         test-cps-convert test-closure-convert
-         eval-top-level eval-scheme eval-ir eval-proc
-         scheme-exp? ir-exp? alphatized-exp? anf-exp? cps-exp? proc-exp?)
+         test-closure-convert eval-top-level eval-scheme eval-ir eval-proc
+         scheme-exp? ir-exp? alphatized-exp? anf-exp? proc-exp? lir-exp?)
 
 (require (only-in racket/format ~a))
 
@@ -71,7 +70,6 @@
   (match d
     [`#(,(? datum?) ...) #t]
     [`(,(? datum?) ...) #t]
-    [(cons datum? datum?) #t]
     [(? string?) #t]
     [(? integer?) #t]
     [(? symbol?) #t]
@@ -224,6 +222,8 @@
      ((rec/with (ext env (list x))) e0)]
     [`(apply ,(? (rec/with env)) ,(? (rec/with env))) #t]
     [`(if ,(? (rec/with env)) ,(? (rec/with env)) ,(? (rec/with env))) #t]
+    [`(cond-bind ,xbnd ,(? (rec/with env)) ,(? (rec/with env)) ,(? (rec/with env)) ,ejoin)
+     ((rec/with (ext env (list xbnd))) ejoin)]
     [`(set! ,(? symbol?) ,(? (rec/with env))) #t]
     [`(call/cc ,(? (rec/with env))) #t]
     [(? var? x) (if (set-member? env x) #t #f)]
@@ -252,11 +252,9 @@
       (if (equal? val (eval-ir alphatized-e))
           #t
           (begin
-            (if correct
-                (display (format (string-append "Test-alphatized: two different values (~a and ~a)"
-                                                " before and after boxing and alphatizing.\n")
-                                 val (eval-ir alphatized-e)))
-                (display "Output from boxing and alphatizing does not fit the output grammar.\n"))
+            (display (format (string-append "Test-alphatized: two different values (~a and ~a)"
+                                            " before and after boxing and alphatizing.\n")
+                             val (eval-ir alphatized-e)))
             #f))
       (begin
         (display "Output not in alphatized language.")
@@ -295,7 +293,7 @@
                              (member x '(let lambda apply if call/cc quote prim quote-prim))))
                     alpha?))
          ,(? alpha?) ...) #t]
-      [else (pretty-print `(bad-alphatized ,e)) #f]))
+      [_ (pretty-print `(bad-alphatized ,e)) #f]))
   (and (ir-exp? e) (alpha? e)))
 
 
@@ -303,109 +301,123 @@
 (define (test-anf-convert anf-convert prog)
   (define val (eval-ir prog))
   (define anf-e (anf-convert prog))
-  (define correct (anf-exp? anf-e))
-  (if (and correct (equal? val (eval-ir anf-e)))
-      #t
-      (begin
-        (if correct
-            (display (format (string-append "Test-anf-convert: two different values"
-                                            " (~a and ~a) before and after anf conversion.\n")
-                             val (eval-ir anf-e)))
-            (display "Output from anf conversion does not fit ANF grammar.\n"))
-        #f)))
+  (define grammar? (anf-exp? anf-e))
+  (if grammar?
+      (let* ([anf-val (eval-ir anf-e)]
+             [success (equal? val anf-val)])
+        (unless success
+          (displayln (format (string-append "Test-anf-convert: Two different values."
+                                            " (~a and ~a) before and after anf conversion.")
+                             val anf-val)))
+        success)
+      (displayln "Output from ANF conversion does not fit ANF grammar.")))
 
+(define (anf? e)
+  (match e
+    [`(let ([,(? symbol?) ,(? anf?)]) ,(? anf?)) #t]
+    [`(apply ,(? symbol?) ,(? symbol?)) #t]
+    [`(prim ,(? prim?) . ,(? symbol?)) #t]
+    [`(apply-prim ,(? prim?) ,(? symbol?)) #t]
+    [`(if ,(? symbol?) ,(? anf?) ,(? anf?)) #t]
+    [`(call/cc ,(? symbol?)) #t]
+    [`(lambda (,(? symbol?) ...) ,(? anf?)) #t]
+    [`(lambda ,(? symbol?) ,(? anf?)) #t]
+    [`(quote ,_) #t]
+    [`(,(? symbol?) ...) #t]
+    [(? symbol?) #t]
+    [_ #f]))
+(define anf-exp? anf?)
 
-(define (anf-exp? e)
-  (define (a-exp? e)
-    (match e
-      [`(lambda ,xs ,(? c-exp? e0)) #t]
-      [`',dat #t]
-      [(? symbol? x) #t]
-      [else #f]))
-  (define (c-exp? e)
-    (match e
-      [`(let ([,(? symbol? x) ,(? c-exp? rhs)]) ,(? c-exp? e0)) #t]
-      [`(if ,(? a-exp? ae) ,(? c-exp? e0) ,(? c-exp? e1)) #t]
-      [`(prim ,op ,(? a-exp? aes) ...) #t]
-      [`(apply-prim ,op ,(? a-exp? ae)) #t]
-      [`(call/cc ,(? a-exp? ae)) #t]
-      [`(apply ,(? a-exp? aes) ,(? a-exp? aes)) #t]
-      [`(,(? (and/c (not/c reserved?) a-exp?) aef) ,(? a-exp? aes) ...) #t]
-      [(? a-exp? e) #t]
-      [else (pretty-print `(bad-anf ,e)) #f]))
-  (and (ir-exp? e) (c-exp? e)))
-
-
-
-(define (test-cps-convert cps-convert prog)
-  (define val (eval-ir prog))
-  (define cps-e (cps-convert prog))
-  (define correct (cps-exp? cps-e))
-  (if (and correct (equal? val (eval-ir cps-e)))
-      #t
-      (begin
-        (if correct
-            (display (format (string-append "Test-cps-convert: two different values"
-                                            " (~a and ~a) before and after cps conversion.\n")
-                             val (eval-ir cps-e)))
-            (display "Output from cps conversion does not fit the CPS grammar.\n"))
-        #f)))
-
-
-
-(define (cps-exp? e)
-  (define (a-exp? e)
-    (match e
-      [`(lambda ,xs ,(? c-exp? e0)) #t]
-      [`',dat #t]
-      [(? symbol? x) #t]
-      [else (pretty-print `(bad-cps-ae ,e)) #f]))
-  (define (c-exp? e)
-    (match e
-      [`(let ([,(? symbol? x) (prim ,op ,(? a-exp? aes) ...)]) ,(? c-exp? e0)) #t]
-      [`(let ([,(? symbol? x) (apply-prim ,op ,(? a-exp? ae))]) ,(? c-exp? e0)) #t]
-      [`(let ([,(? symbol? x) (lambda ,xs ,(? c-exp? lam-e))]) ,(? c-exp? e0)) #t]
-      [`(let ([,(? symbol? x) ',dat]) ,(? c-exp? e0)) #t]
-      [`(if ,(? a-exp? ae) ,(? c-exp? e0) ,(? c-exp? e1)) #t]
-      [`(apply ,(? a-exp? aes) ,(? a-exp? aes)) #t]
-      [`(,(? (and/c (not/c reserved?) a-exp?) aef) ,(? a-exp? aes) ...) #t]
-      [else (pretty-print `(bad-cps-e ,e)) #f]))
-  (and (anf-exp? e) (c-exp? e)))
 
 (define (eval-proc proc)
   (if (proc-exp? proc)
       (racket-proc-eval proc)
       (error 'malformed-proc-ir)))
 
-(define (proc-exp? e)
-  (define (c-exp? e)
-    (match e
-      [`(let ([,(? symbol? x) (make-closure ,(? symbol? xs) ...)]) ,(? c-exp? e0)) #t]
-      [`(let ([,(? symbol? x) (env-ref ,(? symbol?) ,(? integer?))]) ,(? c-exp? e0)) #t]
-      [`(let ([,(? symbol? x) (prim ,op ,(? symbol? xs) ...)]) ,(? c-exp? e0)) #t]
-      [`(let ([,(? symbol? x) (apply-prim ,op ,(? symbol? y))]) ,(? c-exp? e0)) #t]
-      [`(let ([,(? symbol? x) ',dat]) ,(? c-exp? e0)) #t]
-      [`(if ,(? symbol? x) ,(? c-exp? e0) ,(? c-exp? e1)) #t]
-      [`(clo-app ,(? symbol? f) ,(? symbol? xs) ...) #t]
-      [else (pretty-print `(bad-proc-e ,e)) #f]))
-  (match e
-    [`((proc (,(? symbol? xs) ...) ,(? c-exp? e)) ...) #t]
-    [else (pretty-print `(bad-proc ,e)) #f]))
 
+(define (proc-exp? ps)
+  (define (proc? p)
+    (match p
+      [`(proc (,(? symbol?) ,(? symbol?) ,(? symbol?)) ,(? e?)) #t]
+      [_ (pretty-display `(bad-proc ,p)) #f]))
+  (define (e? e)
+    (match e
+      [`(let ([,(? symbol?) ,(? l?)]) ,(? e?)) #t]
+      [`(if ,(? symbol?) ,(? e?) ,(? e?)) #t]
+      [`(%%cond-bind ,(? symbol?) ,(? symbol?) ,(? e?) ,(? e?) ,(? e?)) #t]
+      [(? r?) #t]
+      [_ (pretty-display `(bad-e ,e)) #f]))
+  (define (l? l)
+    (match l
+      [`(make-closure ,(? symbol?) ,(? symbol?) ...) #t]
+      [`(env-ref ,(? symbol?) ,(? nonnegative-integer?)) #t]
+      [`(quote ,(? datum?)) #t]
+      [`(prim ,(? prim?) ,(? symbol?) ...) #t]
+      [`(apply-prim ,(? prim?) ,(? symbol?)) #t]
+      [(? r?) #t]
+      [_ (pretty-display `(bad-l ,l)) #f]))
+  (define (r? r)
+    (match r
+      [(? symbol?) #t]
+      [`(call/cc ,(? symbol?)) #t]
+      [`(clo-app ,(? symbol?) ,(? symbol?)) #t]
+      [_ (pretty-display `(bad-r ,r)) #f]))
+  (match ps
+    [`(,(? proc?) ...) #t]
+    [_ (pretty-display `(bad-procs ,ps)) #f]))
 
 (define (test-closure-convert closure-convert prog)
   (define val (eval-ir prog))
   (define proc (closure-convert prog))
-  (define correct (proc-exp? proc))
-  (if (and correct (equal? val (eval-proc proc)))
-      #t
-      (begin
-        (if correct
-            (display (format (string-append "Test-closure-convert: two different values"
-                                            " (~a and ~a) before and after closure conversion.\n")
-                             val (eval-proc proc)))
-            (display "Output from closure conversion does not fit the proc-exp? grammar.\n"))
-        #f)))
+  (define grammar? (proc-exp? proc))
+  (if grammar?
+      (let* ([proc-val (eval-proc proc)]
+             [success (equal? val proc-val)])
+        (unless success
+          (displayln (format (string-append "Test-closure-convert: Two different values. "
+                                            "(~a and ~a) before and after closure conversion")
+                             val proc-val)))
+        success)
+      (displayln "Output from closure conversion does not fit the proc-exp? grammar.")))
+
+(define (lir-exp? ps)
+  (define (p? p)
+    (match p
+      [`(proc (,(? symbol?) ,(? nonnegative-integer?)
+                            ,(? symbol?) ,(? symbol?))
+              ,(? e?)) #t]
+      [_ (pretty-display `(bad-proc ,p)) #f]))
+  (define (e? e)
+    (match e
+      [`(,(? i?) ... (return ,(? r?))) #t]
+      [_ (pretty-display `(bad-e ,e)) #f]))
+  (define (i? i)
+    (match i
+      [`(bind ,(? symbol?) ,(? l?)) #t]
+      [`(if ,(? symbol?) (label ,(? symbol?)) (label ,(? symbol?))) #t]
+      [`(jump (label ,(? symbol?))) #t]
+      [`(label ,(? symbol?)) #t]
+      [`(return ,(? r?)) #t]
+      [_ (pretty-display `(bad-i ,i)) #f]))
+  (define (l? l)
+    (match l
+      [`(make-closure ,(? symbol?) ,(? symbol?) ...) #t]
+      [`(env-ref ,(? symbol?) ,(? nonnegative-integer?)) #t]
+      [`(quote ,(? datum?)) #t]
+      [`(prim ,(? prim?) ,(? symbol?) ...) #t]
+      [`(apply-prim ,(? prim?) ,(? symbol?)) #t]
+      [`(phi (,(? symbol?) (label ,(? symbol?))) (,(? symbol?) (label ,(? symbol?)))) #t]
+      [(? r?) #t]
+      [_ (pretty-display `(bad-l ,l)) #f]))
+  (define (r? r)
+    (match r
+      [(? symbol?) #t]
+      [`(call/cc ,(? symbol?)) #t]
+      [`(clo-app ,(? symbol?) ,(? symbol?)) #t]
+      [_ (pretty-display `(bad-r ,r)) #f]))
+  (match ps
+    [`(,(? p?) ...) #t]
+    [_ (pretty-display `(bad-procs ,ps)) #f]))
 
 
 (define (racket-compile-eval e)
@@ -434,11 +446,10 @@
                          ,(rewrite-match e))))))))
 
 
-
 (define (racket-proc-eval procs)
-  (with-handlers ([exn:fail? (lambda (x) (begin (pretty-print "Evaluation failed:")
-                                                (pretty-print x)
-                                                (pretty-print procs)
+  (with-handlers ([exn:fail? (lambda (x) (begin (pretty-display "Evaluation failed:")
+                                                (pretty-display x)
+                                                (pretty-display procs)
                                                 (error 'eval-fail)))])
     (parameterize ([current-namespace (make-base-namespace)])
       (namespace-require 'rnrs)
@@ -447,17 +458,30 @@
       (eval (compile
              `(begin
                 (call/cc (lambda (exit+)
+                           (define-syntax-rule (%%cond-bind xb xc et ef ej)
+                             (let ([xb (if xc et ef)]) ej))
                            (define (halt x) (exit+ x))
                            (define datum (lambda (d) d))
                            (define (prim op . args) (apply op args))
-                           (define (apply-prim op args) (apply op args))
-                           (define (procedure? p)
-                             (and (vector? p)
-                                  (equal? '%clo (vector-ref p (- (vector-length p) 1)))))
-                           (define (make-closure . args) (list->vector (append args '(%clo))))
-                           ; interpreted closures are laid out as 1 vector and not a complex object.
-                           ; so we need to go 1 further here than in the compiled code.
-                           (define (env-ref clo n) (vector-ref clo (+ n 1)))
-                           (define (clo-app f . vs) (apply (vector-ref f 0) (cons f vs)))
-                           ,@(map (match-lambda [`(proc (,xs ...) ,bdy) `(define ,xs ,bdy)]) procs)
+                           (define apply-prim apply)
+                           (struct closure (lam env) #:transparent)
+                           (define (make-closure lam . frees)
+                             (closure lam (list->vector frees)))
+                           (define (env-ref clo n)
+                             (match-define (closure _ env) clo)
+                             (vector-ref env n))
+                           (define (clo-app f x)
+                             (match-define (closure lam _) f)
+                             (lam f x))
+                           (define (call/cc clo)
+                             (call-with-current-continuation
+                              (lambda (k) (clo-app clo
+                                                   ; gotta do weird list/car stuff
+                                                   ; cause explicit arg-lists.
+                                                   (list (closure (λ (f x) (k (car x)))
+                                                                  (set)))))))
+                           ,@(map (match-lambda [`(proc (,xname ,xclo ,xs) ,bdy)
+                                                 `(define (,xname ,xclo ,xs) ,bdy)])
+                                  procs)
                            (main '() '())))))))))
+

@@ -1,7 +1,6 @@
 #pragma once
 
-#include "gc.h"
-#include "header.h"
+#include "runtime.h"
 
 /// This header:
 /// struct Map;
@@ -32,13 +31,13 @@ Map* insert_update(Map* m, SinObj* k, SinObj* v) {
     if (m == nullptr) {
         // made it all the way through the map and didnt find the val
         // So just add the entry to update at the end of the map.
-        Map* final_val = reinterpret_cast<Map*>(GC_MALLOC(sizeof(Map)));
+        Map* final_val = reinterpret_cast<Map*>(malloc(sizeof(Map)));
         final_val->next = nullptr;
         final_val->key = k;
         final_val->value = v;
         return final_val;
     }
-    Map* new_map = reinterpret_cast<Map*>(GC_MALLOC(sizeof(Map)));
+    Map* new_map = reinterpret_cast<Map*>(malloc(sizeof(Map)));
     if (eq_helper(m->key, k) == 1) {
         new_map->key = k;
         new_map->value = v;
@@ -58,7 +57,7 @@ Map* insert_copy(Map* m) {
     if (m == nullptr) {
         return nullptr;
     }
-    Map* new_map = reinterpret_cast<Map*>(GC_MALLOC(sizeof(Map)));
+    Map* new_map = reinterpret_cast<Map*>(malloc(sizeof(Map)));
     new_map->key = m->key;
     new_map->value = m->value;
     new_map->next = insert_copy(m->next);

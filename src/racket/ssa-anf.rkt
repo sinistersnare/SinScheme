@@ -1,8 +1,8 @@
 #lang racket
 
-(provide sym-anf-convert)
+(provide anf-convert)
 
-(require (only-in "utils.rkt" datum?))
+(require (only-in "utils.rkt" datum? test-anf-convert))
 
 ; sym-anf-convert =>
 
@@ -19,11 +19,10 @@
 ;     | x
 
 
-; TODO: rename this function to just anf-convert
 ; This is similar to the original ANF-conversion, but the `ae` production
 ; is ONLY symbols now, not also quotes and lambdas. This makes
 ; future conversions even simpler!
-(define (sym-anf-convert e)
+(define (anf-convert e)
   ; CPS is used to sort of guarantee that we have a symbol in the correct position,
   ; the norm-sym function guarantees its a symbol and then lets you do
   ; what you want with that. To guarantee its a symbol, it may have to do
@@ -43,33 +42,29 @@
     ; this is useful for when we need to process many es at once
     ; like in a function application.
     (match es
-      ['()
-       (define ax (gensym 'anf-null))
-       `(let ([,ax '()]) ,(k ax))]
-      [`(,hd . ,tl)
-       (norm-sym hd (λ (sym) (norm-syms tl (λ (syms) (k `(,sym ,@syms))))))]))
+      ['() (k '())]
+      [`(,hd . ,tl) (norm-sym hd (λ (sym) (norm-syms tl (λ (syms) (k `(,sym . ,syms))))))]))
   (define (norm-let bnds body)
     ; we can now safely nest `let` bindings because we are alphatized, so
     ; we don't need to worry about shadowing in the environment.
     (match bnds
-      ['() (sym-anf-convert body)]
+      ['() (anf-convert body)]
       [`((,bnd ,val) . ,tl)
-       `(let ([,bnd ,(sym-anf-convert val)])
+       `(let ([,bnd ,(anf-convert val)])
           ,(norm-let tl body))]))
   (define (norm e k)
     (match e
       [(? symbol? x) (k x)]
       [`(let ,bindings ,body) (k (norm-let bindings body))]
       [`(apply ,ef ,eargs) (norm-syms `(,ef ,eargs) (λ (syms) (k `(apply . ,syms))))]
-      [`(prim ,op ,es ...) (norm-syms es (λ (syms) (k `(prim ,op . ,syms))))]
+      [`(prim ,op . ,es) (norm-syms es (λ (syms) (k `(prim ,op . ,syms))))]
       [`(apply-prim ,op ,eargs) (norm-sym eargs (λ (sym) (k `(apply-prim ,op ,sym))))]
       [`(call/cc ,e) (norm-sym e (lambda (sym) `(call/cc ,sym)))]
-      [`(quote ,(? datum?)) (norm-sym e identity)]
-      [`(lambda ,bnds ,eb)
-       (norm `(lambda ,bnds (sym-anf-convert eb)) identity)]
+      [`(quote ,(? datum?)) (let ([ax (gensym 'anf-datum)]) `(let ([,ax ,e]) ,(k ax)))]
+      [`(lambda ,bnds ,eb) (k `(lambda ,bnds ,(anf-convert eb)))]
       [`(if ,ec ,et ,ef)
-       (norm-sym ec (λ (sym) (k `(if ,sym ,(sym-anf-convert et) ,(sym-anf-convert ef)))))]
-      [`(,_ ,_ ...) (norm-syms e k)]
+       (norm-sym ec (λ (sym) (k `(if ,sym ,(anf-convert et) ,(anf-convert ef)))))]
+      [`(,_ . ,_) (norm-syms e k)]
       [_ (raise `(bad-syntax ,e))]))
   (norm e identity))
 

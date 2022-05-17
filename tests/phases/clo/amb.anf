@@ -1,0 +1,289 @@
+(let (($promise?
+        (lambda ($p)
+          (let ((anf-bind3540871 (prim cons? $p)))
+            (if anf-bind3540871
+              (let ((anf-bind3540872 (prim car $p)))
+                (let ((anf-datum3540873 '%%promise)) (prim eq? anf-bind3540872 anf-datum3540873)))
+              (let ((anf-datum3540874 '#f)) anf-datum3540874))))))
+   (let (($%raise-handler (let ((anf-datum3540875 '())) anf-datum3540875)))
+     (let (($%wind-stack
+            (let ((anf-datum3540876 '1))
+              (let ((anf-datum3540877 '())) (prim make-vector anf-datum3540876 anf-datum3540877)))))
+       (let (($%common-tail
+              (lambda ($x $y)
+                (let (($lx (prim length $x)))
+                  (let (($ly (prim length $y)))
+                    (let (($loop
+                           (let ((anf-datum3540878 '1))
+                             (let ((anf-datum3540879 '()))
+                               (prim make-vector anf-datum3540878 anf-datum3540879)))))
+                      (let (($_1854
+                             (let ((anf-datum3540880 '0))
+                               (let ((anf-bind3540886
+                                      (lambda ($0x $0y)
+                                        (let ((anf-bind3540881 (prim eq? $0x $0y)))
+                                          (if anf-bind3540881
+                                            $0x
+                                            (let ((anf-datum3540882 '0))
+                                              (let ((anf-bind3540883
+                                                     (prim vector-ref $loop anf-datum3540882)))
+                                                (let ((anf-bind3540884 (prim cdr $0x)))
+                                                  (let ((anf-bind3540885 (prim cdr $0y)))
+                                                    (anf-bind3540883
+                                                     anf-bind3540884
+                                                     anf-bind3540885))))))))))
+                                 (prim vector-set! $loop anf-datum3540880 anf-bind3540886)))))
+                        (let ((anf-datum3540887 '0))
+                          (let ((anf-bind3540888 (prim vector-ref $loop anf-datum3540887)))
+                            (let ((anf-bind3540889 (prim > $lx $ly)))
+                              (let ((anf-bind3540891
+                                     (if anf-bind3540889
+                                       (let ((anf-bind3540890 (prim - $lx $ly)))
+                                         (prim drop $x anf-bind3540890))
+                                       $x)))
+                                (let ((anf-bind3540892 (prim > $ly $lx)))
+                                  (let ((anf-bind3540894
+                                         (if anf-bind3540892
+                                           (let ((anf-bind3540893 (prim - $ly $lx)))
+                                             (prim drop $y anf-bind3540893))
+                                           $y)))
+                                    (anf-bind3540888 anf-bind3540891 anf-bind3540894))))))))))))))
+         (let (($%do-wind
+                (lambda ($new)
+                  (let (($tail
+                         (let ((anf-datum3540895 '0))
+                           (let ((anf-bind3540896 (prim vector-ref $%wind-stack anf-datum3540895)))
+                             ($%common-tail $new anf-bind3540896)))))
+                    (let (($_1855
+                           (let (($f
+                                  (let ((anf-datum3540897 '1))
+                                    (let ((anf-datum3540898 '()))
+                                      (prim make-vector anf-datum3540897 anf-datum3540898)))))
+                             (let (($_1856
+                                    (let ((anf-datum3540899 '0))
+                                      (let ((anf-bind3540909
+                                             (lambda ($l)
+                                               (let ((anf-bind3540900 (prim eq? $l $tail)))
+                                                 (let ((anf-bind3540901 (prim not anf-bind3540900)))
+                                                   (if anf-bind3540901
+                                                     (let (($_1857
+                                                            (let ((anf-datum3540902 '0))
+                                                              (let ((anf-bind3540903 (prim cdr $l)))
+                                                                (prim
+                                                                 vector-set!
+                                                                 $%wind-stack
+                                                                 anf-datum3540902
+                                                                 anf-bind3540903)))))
+                                                       (let (($_1858
+                                                              (let ((anf-bind3540904 (prim car $l)))
+                                                                (let ((anf-bind3540905
+                                                                       (prim cdr anf-bind3540904)))
+                                                                  (anf-bind3540905)))))
+                                                         (let ((anf-datum3540906 '0))
+                                                           (let ((anf-bind3540907
+                                                                  (prim vector-ref $f anf-datum3540906)))
+                                                             (let ((anf-bind3540908 (prim cdr $l)))
+                                                               (anf-bind3540907 anf-bind3540908))))))
+                                                     (prim void)))))))
+                                        (prim vector-set! $f anf-datum3540899 anf-bind3540909)))))
+                               (let ((anf-datum3540910 '0))
+                                 (let ((anf-bind3540911 (prim vector-ref $f anf-datum3540910)))
+                                   (let ((anf-datum3540912 '0))
+                                     (let ((anf-bind3540913 (prim vector-ref $%wind-stack anf-datum3540912)))
+                                       (anf-bind3540911 anf-bind3540913)))))))))
+                      (let (($0f
+                             (let ((anf-datum3540914 '1))
+                               (let ((anf-datum3540915 '()))
+                                 (prim make-vector anf-datum3540914 anf-datum3540915)))))
+                        (let (($_1859
+                               (let ((anf-datum3540916 '0))
+                                 (let ((anf-bind3540925
+                                        (lambda ($0l)
+                                          (let ((anf-bind3540917 (prim eq? $0l $tail)))
+                                            (let ((anf-bind3540918 (prim not anf-bind3540917)))
+                                              (if anf-bind3540918
+                                                (let (($_1860
+                                                       (let ((anf-datum3540919 '0))
+                                                         (let ((anf-bind3540920
+                                                                (prim vector-ref $0f anf-datum3540919)))
+                                                           (let ((anf-bind3540921 (prim cdr $0l)))
+                                                             (anf-bind3540920 anf-bind3540921))))))
+                                                  (let (($_1861
+                                                         (let ((anf-bind3540922 (prim car $0l)))
+                                                           (let ((anf-bind3540923
+                                                                  (prim car anf-bind3540922)))
+                                                             (anf-bind3540923)))))
+                                                    (let ((anf-datum3540924 '0))
+                                                      (prim vector-set! $%wind-stack anf-datum3540924 $0l))))
+                                                (prim void)))))))
+                                   (prim vector-set! $0f anf-datum3540916 anf-bind3540925)))))
+                          (let ((anf-datum3540926 '0))
+                            (let ((anf-bind3540927 (prim vector-ref $0f anf-datum3540926)))
+                              (anf-bind3540927 $new))))))))))
+           (let (($ccstack
+                  (let ((anf-datum3540928 '1))
+                    (let ((anf-datum3540929 '())) (prim make-vector anf-datum3540928 anf-datum3540929)))))
+             (let (($fail
+                    (let ((anf-datum3540930 '1))
+                      (let ((anf-datum3540931 '())) (prim make-vector anf-datum3540930 anf-datum3540931)))))
+               (let (($assert
+                      (let ((anf-datum3540932 '1))
+                        (let ((anf-datum3540933 '()))
+                          (prim make-vector anf-datum3540932 anf-datum3540933)))))
+                 (let (($amb
+                        (let ((anf-datum3540934 '1))
+                          (let ((anf-datum3540935 '()))
+                            (prim make-vector anf-datum3540934 anf-datum3540935)))))
+                   (let (($letrec1862 (let ((anf-datum3540936 '())) anf-datum3540936)))
+                     (let (($letrec1863
+                            (lambda ()
+                              (let ((anf-datum3540937 '0))
+                                (let ((anf-bind3540938 (prim vector-ref $ccstack anf-datum3540937)))
+                                  (let ((anf-bind3540939 (prim null? anf-bind3540938)))
+                                    (if anf-bind3540939
+                                      (let ((anf-datum3540940 'no-solution))
+                                        ($%raise-handler anf-datum3540940))
+                                      (let (($next-cc
+                                             (let ((anf-datum3540941 '0))
+                                               (let ((anf-bind3540942
+                                                      (prim vector-ref $ccstack anf-datum3540941)))
+                                                 (prim car anf-bind3540942)))))
+                                        (let (($_1866
+                                               (let ((anf-datum3540943 '0))
+                                                 (let ((anf-datum3540944 '0))
+                                                   (let ((anf-bind3540945
+                                                          (prim vector-ref $ccstack anf-datum3540944)))
+                                                     (let ((anf-bind3540946 (prim cdr anf-bind3540945)))
+                                                       (prim
+                                                        vector-set!
+                                                        $ccstack
+                                                        anf-datum3540943
+                                                        anf-bind3540946)))))))
+                                          ($next-cc $next-cc))))))))))
+                       (let (($letrec1864
+                              (lambda ($b)
+                                (if $b
+                                  (let ((anf-datum3540947 '#t)) anf-datum3540947)
+                                  (let ((anf-datum3540948 '0))
+                                    (let ((anf-bind3540949 (prim vector-ref $fail anf-datum3540948)))
+                                      (anf-bind3540949)))))))
+                         (let (($letrec1865
+                                (lambda ($lst)
+                                  (let (($0lst
+                                         (let ((anf-datum3540950 '1))
+                                           (prim make-vector anf-datum3540950 $lst))))
+                                    (let (($cc
+                                           (let ((anf-bind3540957
+                                                  (lambda ($%k)
+                                                    (let ((anf-bind3540951 (lambda ($u) ($u $u))))
+                                                      (let ((anf-bind3540956
+                                                             (let (($%saved-stack
+                                                                    (let ((anf-datum3540952 '0))
+                                                                      (prim
+                                                                       vector-ref
+                                                                       $%wind-stack
+                                                                       anf-datum3540952))))
+                                                               (lambda ($%x)
+                                                                 (let (($_1867
+                                                                        (let ((anf-datum3540953 '0))
+                                                                          (let ((anf-bind3540954
+                                                                                 (prim
+                                                                                  vector-ref
+                                                                                  $%wind-stack
+                                                                                  anf-datum3540953)))
+                                                                            (let ((anf-bind3540955
+                                                                                   (prim
+                                                                                    eq?
+                                                                                    $%saved-stack
+                                                                                    anf-bind3540954)))
+                                                                              (if anf-bind3540955
+                                                                                (prim void)
+                                                                                ($%do-wind
+                                                                                 $%saved-stack)))))))
+                                                                   ($%k $%x))))))
+                                                        (anf-bind3540951 anf-bind3540956))))))
+                                             (call/cc anf-bind3540957))))
+                                      (let ((anf-datum3540958 '0))
+                                        (let ((anf-bind3540959 (prim vector-ref $0lst anf-datum3540958)))
+                                          (let ((anf-bind3540960 (prim null? anf-bind3540959)))
+                                            (if anf-bind3540960
+                                              (let ((anf-datum3540961 '0))
+                                                (let ((anf-bind3540962
+                                                       (prim vector-ref $fail anf-datum3540961)))
+                                                  (anf-bind3540962)))
+                                              (let (($head
+                                                     (let ((anf-datum3540963 '0))
+                                                       (let ((anf-bind3540964
+                                                              (prim vector-ref $0lst anf-datum3540963)))
+                                                         (prim car anf-bind3540964)))))
+                                                (let (($_1868
+                                                       (let ((anf-datum3540965 '0))
+                                                         (let ((anf-datum3540966 '0))
+                                                           (let ((anf-bind3540967
+                                                                  (prim vector-ref $0lst anf-datum3540966)))
+                                                             (let ((anf-bind3540968
+                                                                    (prim cdr anf-bind3540967)))
+                                                               (prim
+                                                                vector-set!
+                                                                $0lst
+                                                                anf-datum3540965
+                                                                anf-bind3540968)))))))
+                                                  (let (($_1869
+                                                         (let ((anf-datum3540969 '0))
+                                                           (let ((anf-datum3540970 '0))
+                                                             (let ((anf-bind3540971
+                                                                    (prim
+                                                                     vector-ref
+                                                                     $ccstack
+                                                                     anf-datum3540970)))
+                                                               (let ((anf-bind3540972
+                                                                      (prim cons $cc anf-bind3540971)))
+                                                                 (prim
+                                                                  vector-set!
+                                                                  $ccstack
+                                                                  anf-datum3540969
+                                                                  anf-bind3540972)))))))
+                                                    $head))))))))))))
+                           (let (($_1870
+                                  (let ((anf-datum3540973 '0))
+                                    (prim vector-set! $ccstack anf-datum3540973 $letrec1862))))
+                             (let (($_1871
+                                    (let ((anf-datum3540974 '0))
+                                      (prim vector-set! $fail anf-datum3540974 $letrec1863))))
+                               (let (($_1872
+                                      (let ((anf-datum3540975 '0))
+                                        (prim vector-set! $assert anf-datum3540975 $letrec1864))))
+                                 (let (($_1873
+                                        (let ((anf-datum3540976 '0))
+                                          (prim vector-set! $amb anf-datum3540976 $letrec1865))))
+                                   (let (($a
+                                          (let ((anf-datum3540977 '0))
+                                            (let ((anf-bind3540978 (prim vector-ref $amb anf-datum3540977)))
+                                              (let ((anf-datum3540979 '(2 3 4 5)))
+                                                (anf-bind3540978 anf-datum3540979))))))
+                                     (let (($0b
+                                            (let ((anf-datum3540980 '0))
+                                              (let ((anf-bind3540981
+                                                     (prim vector-ref $amb anf-datum3540980)))
+                                                (let ((anf-datum3540982 '(2 3 4 5 6)))
+                                                  (anf-bind3540981 anf-datum3540982))))))
+                                       (let (($c
+                                              (let ((anf-datum3540983 '0))
+                                                (let ((anf-bind3540984
+                                                       (prim vector-ref $amb anf-datum3540983)))
+                                                  (let ((anf-datum3540985 '(2 3 4 5)))
+                                                    (anf-bind3540984 anf-datum3540985))))))
+                                         (let (($_1874
+                                                (let ((anf-datum3540986 '0))
+                                                  (let ((anf-bind3540987
+                                                         (prim vector-ref $assert anf-datum3540986)))
+                                                    (let ((anf-bind3540988 (prim * $a $a)))
+                                                      (let ((anf-bind3540989 (prim * $0b $0b)))
+                                                        (let ((anf-bind3540990
+                                                               (prim + anf-bind3540988 anf-bind3540989)))
+                                                          (let ((anf-bind3540991 (prim * $c $c)))
+                                                            (let ((anf-bind3540992
+                                                                   (prim = anf-bind3540990 anf-bind3540991)))
+                                                              (anf-bind3540987 anf-bind3540992))))))))))
+                                           (let ((anf-datum3540993 'solution))
+                                             (prim list anf-datum3540993 $a $0b $c)))))))))))))))))))))))

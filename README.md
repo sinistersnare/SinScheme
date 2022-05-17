@@ -104,7 +104,6 @@ that this language will give you.
 
 `primitives.md` documents each primitive that this language supports.
 It also provides documentation for the `Hash` object implemented in `docs/cpp/hash.h`
-(Part 3 Professor...)
 
 `language.md` provides a general guide of the language.
 
@@ -121,6 +120,10 @@ It was a really fun class, you should take take a look at it!
 
 ## TODO: ##
 
+* Allow datums in prim operations after anf? Not just symbols.
+*   Could probably allow them in function calls too hmmm
+*   Would reduce the # locals at least.
+* Can we allow vararg lambdas? Right now, we are compiling everything into a 1-fixed-arg lambda, which shifts the cost of vararg lambdas onto fixed-arg lambdas. I think it would require a stack-slot to be added noting the # args passed, so we know dynamically where the locals start.
 * Update documentation on compiler phases and primitives, and everything else...
 	* More important now that we dont do CPS anymore... Docs are fairly stale!
 * A way to auto-include LibGC without asking users to modify compiler.rkt?

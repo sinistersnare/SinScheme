@@ -1,0 +1,3 @@
+((proc (main env args)
+   (let ((ret '5))
+     ret)))

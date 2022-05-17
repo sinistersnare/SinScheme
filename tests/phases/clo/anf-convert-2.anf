@@ -1,0 +1,7 @@
+(let ((anf-bind3368728 (lambda (x) (let ((anf-datum3368727 '1)) anf-datum3368727))))
+   (let ((anf-datum3368729 'a))
+     (let ((anf-bind3368730 (anf-bind3368728 anf-datum3368729)))
+       (let ((anf-bind3368733
+              (let ((x (let ((anf-datum3368731 '1)) anf-datum3368731)))
+                (let ((y (let ((anf-datum3368732 '2)) anf-datum3368732))) (prim list x y x)))))
+         (prim list anf-bind3368730 anf-bind3368733)))))

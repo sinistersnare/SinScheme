@@ -4,23 +4,23 @@
 ;; Its pretty bad, i hacked it to work for this... so yeah
 
 (require (only-in "src/racket/utils.rkt"
-                  test-desugar ; desugar testing
-                  test-alphatize ; alphatize testing
-                  test-anf-convert ; anf testing
-                  test-cps-convert ; cps testing
-                  test-closure-convert ; closure-convert testing
-                  eval-proc ; llvm testing
-                  read-begin eval-top-level))
+                  test-desugar
+                  test-alphatize
+                  test-anf-convert
+                  test-closure-convert
+                  eval-proc
+                  read-begin
+                  eval-top-level
+                  lir-exp?))
 
 (require (only-in "src/racket/desugar.rkt" desugar))
 
 (require (only-in "src/racket/alphatize.rkt" alphatize))
 (require (only-in "src/racket/assignment-convert.rkt" assignment-convert))
 
-(require (only-in "src/racket/cps-anf.rkt" anf-convert))
-(require (only-in "src/racket/cps.rkt" cps-convert))
-(require (only-in "src/racket/cps-closure-convert.rkt" closure-convert))
-(require (only-in "src/racket/cps-llvm-convert.rkt" llvm-convert))
+(require (only-in "src/racket/ssa-anf.rkt" anf-convert))
+(require (only-in "src/racket/ssa-closure-convert.rkt" closure-convert))
+(require (only-in "src/racket/ssa-llvm-segmented.rkt" lir-convert llvm-convert))
 
 (require (only-in "compiler.rkt" gen-build-file scm->exe llvm->exe))
 
@@ -42,19 +42,28 @@
   ; call the callback with the differente values
   (fin compiled-value interpreted-value))
 
-; TODO: would be nice to combine this with compile-and-interpret somehow.
-(define (test-llvm-convert llvm-convert prog)
+;; Takes closure converted proc-exp?
+(define (test-llvm-convert lir-convert llvm-convert prog)
   (define interpreted-val (~a (eval-proc prog)))
-  (define llvm (llvm-convert prog))
-  (define exe-name (gen-build-file (gensym 'testllvm) ".x"))
-  (llvm->exe llvm exe-name)
-  ; if this function gets any more complicated we should refactor and share code with the
-  ; compile-and-run function.
-  (define compiled-val
-    (string-normalize-spaces (with-output-to-string (λ () (system (format "./~a" exe-name))))))
-  (define success (equal? interpreted-val compiled-val))
-  (unless success (displayln (format "llvm:'~a'\ninterpreted:'~a'\n" compiled-val interpreted-val)))
-  success)
+  ;(pretty-display `(proc-val ,interpreted-val))
+  (define lir (lir-convert prog))
+  (if (not (lir-exp? lir))
+      (begin
+        (displayln "Output from lir-convert does not fit lir-exp? grammar.")
+        #f)
+      (begin
+        (let ([llvm (llvm-convert lir)]
+              [exe-name (gen-build-file (gensym 'testllvm) ".x")])
+          (llvm->exe llvm exe-name)
+          ; if this function gets any more complicated we should refactor and
+          ; share code with the compile-and-run function.
+          (define compiled-val
+            (string-normalize-spaces (with-output-to-string
+                                       (λ () (system (format "./~a" exe-name))))))
+          (define success (equal? interpreted-val compiled-val))
+          (unless success (displayln (format "llvm:'~a'\ninterpreted:'~a'\n"
+                                             compiled-val interpreted-val)))
+          success))))
 
 ; Single test creation.
 
@@ -83,20 +92,21 @@
        success))))
 
 ; TODO: move testing functions from utils.rkt to here?
-; Or maybe move the testing functionality into the tests/ folder, and this just be the API?
-(define (new-pass-test test-file-path f)
+;       Or maybe move the testing functionality into the tests/ folder,
+;       and this just be the API?
+(define (new-phase-test test-file-path f)
   (lambda ()
     (define test-contents (read (open-input-string (file->string test-file-path))))
     (with-handlers ([exn:fail? (λ (ex) (displayln ex) #f)])
       (f test-contents))))
 
-(define (new-desugar-test p) (new-pass-test p (λ (c) (test-desugar desugar c))))
+(define (new-desugar-test p) (new-phase-test p (λ (c) (test-desugar desugar c))))
 (define (new-alphatize-test p)
-  (new-pass-test p (λ (c) (test-alphatize assignment-convert alphatize c))))
-(define (new-anf-test p) (new-pass-test p (λ (c) (test-anf-convert anf-convert c))))
-(define (new-cps-test p) (new-pass-test p (λ (c) (test-cps-convert cps-convert c))))
-(define (new-clo-test p) (new-pass-test p (λ (c) (test-closure-convert closure-convert c))))
-(define (new-llvm-test p) (new-pass-test p (λ (c) (test-llvm-convert llvm-convert c))))
+  (new-phase-test p (λ (c) (test-alphatize assignment-convert alphatize c))))
+(define (new-anf-test p) (new-phase-test p (λ (c) (test-anf-convert anf-convert c))))
+(define (new-clo-test p) (new-phase-test p (λ (c) (test-closure-convert closure-convert c))))
+(define (new-llvm-test p) (new-phase-test p (λ (c) (test-llvm-convert lir-convert llvm-convert c))))
+;; (define (new-llvm-test p) (new-phase-test p (λ (c) (test-llvm-convert llvm-convert c))))
 
 ; test suite creation
 
@@ -123,12 +133,12 @@
                                     (get-tests-at "tests/phases/alphatize/" "ir")))
 (define anf-tests (make-suite "anf-" new-anf-test
                               (get-tests-at "tests/phases/anf/" "alpha")))
-(define cps-tests (make-suite "cps-" new-cps-test
-                              (get-tests-at "tests/phases/cps/" "anf")))
 (define clo-tests (make-suite "clo-" new-clo-test
-                              (get-tests-at "tests/phases/clo/" "cps")))
+                              (get-tests-at "tests/phases/clo/" "anf")))
 (define llvm-tests (make-suite "llvm-" new-llvm-test
-                               (get-tests-at "tests/phases/llvm/" "proc")))
+                              (get-tests-at "tests/phases/llvm/" "proc")))
+;; (define llvm-tests (make-suite "llvm-" new-llvm-test
+;;                                (get-tests-at "tests/phases/llvm/" "proc")))
 
 (define (run-single testcase)
   (match-define (list test-name exec) testcase)
@@ -152,7 +162,7 @@
 
 (define all-tests (append passing-tests failing-tests
                           desugar-tests alphatize-tests
-                          anf-tests cps-tests
+                          anf-tests
                           clo-tests llvm-tests))
 (define (run-test/internal is-repl . args)
   ;; Run all tests, a specific test or suite, or print the available tests
@@ -163,7 +173,6 @@
     [(list "desugar") (run-suite desugar-tests)]
     [(list "alpha") (run-suite alphatize-tests)]
     [(list "anf") (run-suite anf-tests)]
-    [(list "cps") (run-suite cps-tests)]
     [(list "clo") (run-suite clo-tests)]
     [(list "llvm") (run-suite llvm-tests)]
     [(list test-name)
