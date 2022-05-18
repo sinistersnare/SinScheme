@@ -12,7 +12,7 @@
 ; e ::= r
 ;     | (let ([x l]) e)
 ;     | (if x e e)
-;     | (cond-bind x x e e e)
+;     | (%%cond-bind x x e e e)
 ; l ::= r
 ;     | (make-closure x x ...)
 ;     | (env-ref x nat)
@@ -76,14 +76,14 @@
          ,@(conv-e et)
          (label ,f-label)
          ,@(conv-e ef))]
-      [`(cond-bind ,x ,xc ,et ,ef ,ejoin)
+      [`(%%cond-bind ,x ,xc ,et ,ef ,ejoin)
        (define phi-base (symbol-append (gensym 'branch-tmp) '- x))
        (define phi-t (symbol-append phi-base '-true))
        (define phi-f (symbol-append phi-base '-false))
        (define branch-label-base (symbol-append (gensym 'branch) '- x '-))
-       (define branch-label-true (symbol-append branch-label-base '-true))
-       (define branch-label-false (symbol-append branch-label-base '-false))
-       (define branch-label-join (symbol-append branch-label-base '-join))
+       (define branch-label-true (symbol-append branch-label-base 'true))
+       (define branch-label-false (symbol-append branch-label-base 'false))
+       (define branch-label-join (symbol-append branch-label-base 'join))
        ; TODO: is there a better way? This is an ugly hack,
        ; we replace the output `return` with a jump to the join.
        (define t-conv
@@ -91,13 +91,13 @@
            `((label ,branch-label-true)
              ,@is
              (bind ,phi-t ,tret)
-             (jump ,branch-label-join))))
+             (jump (label ,branch-label-join)))))
        (define f-conv
          (match-let ([`(,is ... (return ,fret)) (conv-e ef)])
            `((label ,branch-label-false)
              ,@is
              (bind ,phi-f ,fret)
-             (jump ,branch-label-join))))
+             (jump (label ,branch-label-join)))))
        (define join-conv
          `((label ,branch-label-join)
            (bind ,x (phi (,phi-t (label ,branch-label-true))
@@ -212,8 +212,9 @@
       [`(quote ,_) l]
       [`(prim ,op . ,xs) `(prim ,op . ,(map normalize xs))]
       [`(apply-prim ,op ,x) `(apply-prim ,op ,(normalize x))]
-      [`(phi (,x0 ,lx0) (,x1 ,lx1)) `(phi (,(normalize x0) ,(normalize lx0))
-                                          (,(normalize x1) ,(normalize lx1)))]
+      [`(phi (,x0 (label ,lx0)) (,x1 (label ,lx1)))
+       `(phi (,(normalize x0) (label ,(normalize lx0)))
+             (,(normalize x1) (label ,(normalize lx1))))]
       [r (norm-r r)]))
   (define (norm-r r)
     (match r
@@ -247,11 +248,12 @@
 (define (layout-globals globals)
   ; TODO: we can take this list and do (sort xs string<?) to order it!
   (foldl (λ (k acc)
-           (match-define (cons val _) k)
+           (match-define (cons _ val) k)
            (match-define (cons name size) (hash-ref globals k))
-           (cons (format "@~a = private unnamed_addr constant [~a x i8] c\"~a\""
-                         name size val)
-                 acc))
+           `(,(format "; ~a" val)
+             ,(format "@~a = private unnamed_addr constant [~a x i8] c\"~a\""
+                      name size (c-hex-encode val))
+             . ,acc))
          '() (hash-keys globals)))
 
 (define (llvmir-ir->llvm-ir-string ir)
@@ -281,6 +283,7 @@
       [`(*** ,inner-typ) (format "~a***" (conv-type inner-typ))]
       [`(**** ,inner-typ) (format "~a****" (conv-type inner-typ))]
       [_ (pretty-display `(unknown-type: ,typ)) (raise 'unknown-type)]))
+
   #;(pretty-display `(converting ,ir))
   (match ir
     [`(label ,name) (format "~a:" name)]
@@ -313,6 +316,17 @@
     [`(,to = mul ,ty ,name0 ,name1)
      (format "  ~a = mul ~a ~a, ~a"
              (conv-name to) (conv-type ty) (conv-name name0) (conv-name name1))]
+    [`(,to = sub nuw nsw ,ty ,l ,r)
+     (format "  ~a = sub nuw nsw ~a ~a, ~a"
+             (conv-name to) (conv-type ty) (conv-name l) (conv-name r))]
+    [`(,to = lshr ,ty ,val ,amt)
+     (format "  ~a = lshr ~a ~a, ~a"
+             (conv-name to) (conv-type ty) (conv-name val) (conv-name amt))]
+    [`(,to = phi ,ty (,tval (label ,tlabel)) (,fval (label ,flabel)))
+     (format "  ~a = phi ~a [~a, ~a], [~a, ~a]"
+             (conv-name to) (conv-type ty)
+             (conv-name tval) (conv-name tlabel)
+             (conv-name fval) (conv-name flabel))]
     [`(call void ,name ,args)
      (format "  call void ~a(~a)"
              (conv-name name) (conv-args args))]
@@ -416,10 +430,10 @@
                  '() (range (- nslots (local-i 0))))
         (comment "End function Prologue")))
     (define (layout-body)
-      ; MUTABLE CELL
-      ; TODO: would be nice to get rid of this mutability.
       (define cur-return 0)
       (define (++!)
+        ; MUTABLE CELL
+        ; TODO: would be nice to get rid of this mutability.
         (define cur cur-return)
         (set! cur-return (add1 cur-return))
         cur)
@@ -430,8 +444,8 @@
           [`(jump (label ,x))
            `((br (label (% ,x))))]
           [`(bind ,x (phi (,xtval (label ,xtlabel)) (,xfval (label ,xflabel))))
-           ; TODO: Im not sure xtval and xfval are actually used in the program.
-           (raise 'this-is-broken-i-think-look-above.)
+           ; I dont like that we use the xtval and xfval registers directly
+           ; but idk any other way??
            (define base (symbol-append 'phi_ x))
            ; TODO: xtval and xfval should be given the same stack slot?
            (define ret (cons (symbol-append base 'reg) (hash-ref local-mapping x)))
@@ -450,7 +464,7 @@
            ;      true and false branch values here. Only 1 is taken, why do we need 2 slots.
            `((comment "Starting if")
              ((% ,(car reg)) = load (* SinObj) (** SinObj) (% ,(cdr reg)))
-             ((% ,istrue) = call i64 (@ is_truthy_value) ([(* SinObj) (% ,(car reg))]))
+             ((% ,istrue) = call i1 (@ is_truthy_value) ([(* SinObj) (% ,(car reg))]))
              (br i1 (% ,istrue) (label (% ,xt)) (label (% ,xf))))]
           [`(bind ,x (prim ,op . ,xargs))
            (define base (gensym (symbol-append 'primtmp_ x)))
@@ -476,8 +490,8 @@
            ; XXX: the `insertvalue` LLVM IR instruction may be useful.
            (define base (gensym (symbol-append 'makeclo_ x)))
            (define ret (cons (symbol-append base '_val) (hash-ref local-mapping x)))
-           (define args (map (λ (a) (cons (symbol-append base '_arg) (hash-ref local-mapping a)))
-                             xfrees))
+           (define args (map (λ (a i) (cons (symbol-append base '_arg_ i) (hash-ref local-mapping a)))
+                             xfrees (range (length xfrees))))
            (define funcaddr (symbol-append base '_funcaddr))
            `((comment "Starting make-closure")
              ; load all free variables from stack
@@ -487,9 +501,9 @@
              ; allocate the closure
              ((% ,(car ret)) = call (* SinObj) (@ closure_alloc)
                              ([i64 ,(length xfrees)] [(* i8) (% ,funcaddr)]))
-             ,@(map (λ (a i) `(call (@ closure_place_freevar) ([(* SinObj) ,(car ret)]
-                                                               [(* SinObj) ,(cdr a)]
-                                                               [i64 ,i])))
+             ,@(map (λ (a i) `(call void (@ closure_place_freevar) ([(* SinObj) (% ,(car ret))]
+                                                                    [(* SinObj) (% ,(car a))]
+                                                                    [i64 ,i])))
                     args (range (length args)))
              ; place fully formed closure on stack.
              (store (* SinObj) (% ,(car ret)) (** SinObj) (% ,(cdr ret))))]
@@ -538,7 +552,7 @@
            (define ret (cons (symbol-append base '_val) (hash-ref local-mapping x)))
            (define raw (symbol-append base '_rawglobal))
            `((comment "Starting const-global")
-             ((% ,raw) = getelementptr inbounds (arr ,size (* i8)) (* (arr ,size (* i8)))
+             ((% ,raw) = getelementptr inbounds (arr ,size i8) (* (arr ,size i8))
                        (@ ,global-name) (i64 0) (i64 0))
              ((% ,(car ret)) = call (* SinObj) (@ ,(symbol-append 'const_init_ type-call))
                              ([(* i8) (% ,raw)]))
@@ -549,7 +563,7 @@
            (define clo (cons (symbol-append base '_closure) (hash-ref local-mapping xf)))
            (define arglist (cons (symbol-append base '_arglist)
                                  (hash-ref local-mapping xarglist)))
-           (define ret (cons (symbol-append base '_val) (hash-ref local-mapping x)))
+           (define ret (cons x (hash-ref local-mapping x)))
            (define funcptr (symbol-append base '_funcptr))
            (define newfp (symbol-append base '_newfp))
            (define newsizeloc (symbol-append base '_newsizeloc))
@@ -623,7 +637,7 @@
              ; store @retr value into (hash-ref local-mapping x)
              (store (* SinObj) (% ,(car ret)) (** SinObj) (% ,(cdr ret))))]
           [`(bind ,x (call/cc ,xf))
-           (define base (gensym 'tailccc))
+           (define base (gensym 'directccc))
            (define return-value (cons (symbol-append base '_return_value)
                                       (hash-ref local-mapping x)))
            (define clo (cons (symbol-append base '_callee_clo) (hash-ref local-mapping xf)))
@@ -661,15 +675,13 @@
            (define underflow-addr-void (symbol-append base '_underflow_addr_void))
            (define underflow-addr (symbol-append base '_underflow_addr))
            (define underflow-size-as-sinobj (symbol-append base '_underflow_size_as_sinobj))
-           (define underflow-size-as-ptr (symbol-append base '_underflow_size_as_ptr))
            (define clo-fn-part (symbol-append base '_clo_fn_part))
            (define ret-label (symbol-append xname '_ret (++!)))
            (define overflow-underflow-addr (symbol-append base '_overflow_underflow_addr))
            ; Check if we have enough
            `((comment "Starting direct call/cc")
              ((% ,has-space) = call i1 (@ check_for_overflow)
-                             ([(** SinRecord) (@ srr)]
-                              [(*** SinObj) (@ fpr)]
+                             ([(*** SinObj) (@ fpr)]
                               [(*** SinObj) (@ spr)]
                               [i64 ,nslots]))
              (br i1 (% ,has-space) (label (% ,do-call)) (label (% ,overflow-first)))
@@ -696,7 +708,7 @@
              ((% ,old-record-next-loc) = getelementptr inbounds SinRecord (* SinRecord)
                                        (% ,old-record) (i64 0) (i32 1))
              ; This is the continuation object if we do not split the stack.
-             ((% ,dont-split-record) = load (* SinRecord) (** SinRecord) (% ,old-record-loc))
+             ((% ,dont-split-record) = load (* SinRecord) (** SinRecord) (% ,old-record-next-loc))
              (br (label (% ,finished-stack-splitting)))
              (label ,do-split)
              ; get the stack part of the record
@@ -714,9 +726,9 @@
              ((% ,caller-fp-int) = ptrtoint (** SinObj) (% ,caller-fp) i64)
              ((% ,old-record-stack-int) = ptrtoint (** SinObj) (% ,old-record-stack) i64)
              ((% ,cutoff-offset-bytes) = sub nuw nsw i64 (% ,callee-fp-int) (% ,old-record-stack-int))
-             ((% ,cutoff-offset-slots = lshr i64 (% ,cutoff-offset-bytes) 3))
+             ((% ,cutoff-offset-slots) = lshr i64 (% ,cutoff-offset-bytes) 3)
              ; Get the number of slots to the previous frame start from base of old record.
-             ((% ,return-fp-offset-bytes) = sub nuw nsw i64 (% ,caller-fp-int) (% old-record-stack-int))
+             ((% ,return-fp-offset-bytes) = sub nuw nsw i64 (% ,caller-fp-int) (% ,old-record-stack-int))
              ((% ,return-fp-offset-slots) = lshr i64 (% ,return-fp-offset-bytes) 3)
              ; Get the return address so we can put it into the old-record's return_address field.
              ((% ,return-address) = (* i8) blockaddress (@ main) (% ,ret-label))
@@ -726,14 +738,14 @@
                                     [(** SinObj) (% ,callee-fp)]
                                     [i64 (% ,cutoff-offset-slots)]
                                     [i64 (% ,return-fp-offset-slots)]
-                                    [i8* (% ,return-address)]))
+                                    [(* i8) (% ,return-address)]))
              ; place the new top segment in @srr
-             (store volatile (* SinRecord) (% ,new-top-segment) (** SinRecord) (@ srr))
+             (store (* SinRecord) (% ,new-top-segment) (** SinRecord) (@ srr))
              (br (label (% ,finished-stack-splitting)))
              ;;; Stack splitting done!
              (label ,finished-stack-splitting)
-             ((% ,stack-record-to-use) = phi (* SinRecord) ([(% ,old-record) (label ,do-split)]
-                                                            [(% ,dont-split-record) (label ,dont-split)]))
+             ((% ,stack-record-to-use) = phi (* SinRecord) [(% ,old-record) (label (% ,do-split))]
+                                       [(% ,dont-split-record) (label (% ,dont-split))])
              ; Create the continuation object
              ((% ,continuation-function-handler) = (* i8) blockaddress (@ main) (% continuation_function_handler))
              ((% ,cont-clo) = call (* SinObj) (@ make_continuation_closure)
@@ -741,11 +753,11 @@
                              [(* i8) (% ,continuation-function-handler)]))
              ; Get argument locations
              ((% ,size-loc) = getelementptr inbounds (* SinObj) (** SinObj)
-                            ,callee-fp (i64 ,size-pos))
+                            (% ,callee-fp) (i64 ,size-pos))
              ((% ,callee-clo-arg-loc) = getelementptr inbounds (* SinObj) (** SinObj)
-                                      ,callee-fp (i64 ,(arg-i 0)))
+                                      (% ,callee-fp) (i64 ,(arg-i 0)))
              ((% ,arglist-arg-loc) = getelementptr inbounds (* SinObj) (** SinObj)
-                                   ,callee-fp (i64 ,(arg-i 1)))
+                                   (% ,callee-fp) (i64 ,(arg-i 1)))
              ; Get closure we are calling (arg0 and the callee)
              ((% ,(car clo)) = load (* SinObj) (** SinObj) (% ,(cdr clo)))
              ; Create args
@@ -755,13 +767,13 @@
              ;;;; place things on stack
              ; Use the underflow address in place of the return address
              ((% ,underflow-addr-void) = (* i8) blockaddress (@ main) (% underflow_handler))
-             ((% ,underflow-addr) = bitcast (i8*) (% ,underflow-addr-void) to (* SinObj))
+             ((% ,underflow-addr) = bitcast (* i8) (% ,underflow-addr-void) (* SinObj))
              ; Size here at underflow point is -1, this is helpful during overflow handling.
-             ((% ,underflow-size-as-sinobj) = inttoptr i64 -1 to (* SinObj))
+             ((% ,underflow-size-as-sinobj) = inttoptr i64 -1 (* SinObj))
              ; Place arguments onto stack
              ; callee-fp[0] is return-address (here, underflow), then size, then args.
              (store (* SinObj) (% ,underflow-addr) (** SinObj) (% ,callee-fp))
-             (store (* SinObj) (% ,underflow-size-as-ptr) (** SinObj) (% ,size-loc))
+             (store (* SinObj) (% ,underflow-size-as-sinobj) (** SinObj) (% ,size-loc))
              (store (* SinObj) (% ,(car clo)) (** SinObj) (% ,callee-clo-arg-loc))
              (store (* SinObj) (% ,arglist) (** SinObj) (% ,arglist-arg-loc))
              ;;;;; Call the damn function.
@@ -776,7 +788,7 @@
            ;; Store into x1 via a SinObj* -> SinObj* bitcast.
            (define base (gensym 'bind_alias))
            (define alias (hash-ref local-mapping x0))
-           (define aliased (cons (symbol-append base '_aliased)
+           (define aliased (cons x0
                                  (hash-ref local-mapping x1)))
            `((comment "Starting alias")
              ((% ,(car aliased)) = load (* SinObj) (** SinObj) (% ,(cdr aliased)))
@@ -822,7 +834,7 @@
            (define clo (cons (symbol-append base '_clo_arg_local) (hash-ref local-mapping xf)))
            (define underflow-addr-raw (symbol-append base '_underflow_addr_raw))
            (define underflow-addr (symbol-append base '_underflow_addr))
-           (define underflow-size-as-ptr (symbol-append base '_underflow_size_as_ptr))
+           (define underflow-size-as-sinobj (symbol-append base '_underflow_size_as_ptr))
            (define clo-fn-part (symbol-append base '_clo_fn_part))
            (define record-to-use (symbol-append base '_stack_record_to_use))
            (define continuation-function-handler
@@ -848,7 +860,7 @@
              ; get the frame-pointer, which will also be the base of the new segment.
              ((% ,cur-fp) = load (** SinObj) (*** SinObj) (@ fpr))
              ; Get the number of slots to cutoff.
-             ((% ,cur-fp-int) = ptrtoint (** SinObj) (% ,cur-fp) to i64)
+             ((% ,cur-fp-int) = ptrtoint (** SinObj) (% ,cur-fp) i64)
              ((% ,old-record-base-int) = ptrtoint (** SinObj) (% ,old-record-base) i64)
              ((% ,cutoff-offset-bytes) = sub i64 (% ,cur-fp-int) (% ,old-record-base-int))
              ((% ,cutoff-offset-slots) = lshr i64 (% ,cutoff-offset-bytes) 3)
@@ -906,9 +918,9 @@
              ((% ,underflow-addr) = bitcast (* i8) (% ,underflow-addr-raw) (* SinObj))
              (store (* SinObj) (% ,underflow-addr) (** SinObj) (% ,cur-fp))
              ; Size here at underflow point is -1, this is helpful during overflow handling.
-             ((% ,underflow-size-as-ptr) = inttoptr i64 -1 to (* SinObj))
+             ((% ,underflow-size-as-sinobj) = inttoptr i64 -1 (* SinObj))
              ; Store arguments
-             (store (* SinObj) (% ,underflow-size-as-ptr) (** SinObj) (% ,size-loc))
+             (store (* SinObj) (% ,underflow-size-as-sinobj) (** SinObj) (% ,size-loc))
              (store (* SinObj) (% ,(car clo)) (** SinObj) (% ,clo-arg-loc))
              (store (* SinObj) (% ,arglist) (** SinObj) (% ,arglist-arg-loc))
              ;;;;; Call the damn function.
@@ -979,33 +991,5 @@
    `("; Begin user globals"
      ,@(layout-globals globals)
      "; End user "
-     #;,@helper-functions
      ,@(layout-program norm-lir globals))
    "\n"))
-
-
-(define prog
-  '((proc
-     (main mainenv4964814 mainargs4964815)
-     (let ((anf-bind4962025 (make-closure clo4964813)))
-       (let ((anf-datum4962026 '5))
-         (let ((args4964807$anf-bind4962025$0 '()))
-           (let ((args4964807$anf-bind4962025$1
-                  (prim cons anf-datum4962026 args4964807$anf-bind4962025$0)))
-             (let ((g (clo-app anf-bind4962025 args4964807$anf-bind4962025$1)))
-               (let ((anf-bind4962028 (make-closure clo4964812)))
-                 (let ((anf-datum4962029 '7))
-                   (let ((args4964809$anf-bind4962028$0 '()))
-                     (let ((args4964809$anf-bind4962028$1
-                            (prim cons anf-datum4962029 args4964809$anf-bind4962028$0)))
-                       (let ((h (clo-app anf-bind4962028 args4964809$anf-bind4962028$1)))
-                         (let ((admin-toplevel-bnd4964811 (prim + g h)))
-                           admin-toplevel-bnd4964811))))))))))))
-    (proc (clo4964813 clo4964813_cloarg arglist49648060) (let ((y (prim car arglist49648060))) y))
-    (proc
-     (clo4964812 clo4964812_cloarg arglist49648080)
-     (let ((z (prim car arglist49648080)))
-       (let ((anf-datum4962027 '3))
-         (let ((admin-toplevel-bnd4964810 (prim + z anf-datum4962027))) admin-toplevel-bnd4964810))))))
-
-(define lir (lir-convert prog))

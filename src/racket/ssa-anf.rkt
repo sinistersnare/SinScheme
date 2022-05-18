@@ -67,4 +67,3 @@
       [`(,_ . ,_) (norm-syms e k)]
       [_ (raise `(bad-syntax ,e))]))
   (norm e identity))
-

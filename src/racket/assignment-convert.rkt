@@ -7,7 +7,8 @@
 ; assignment-convert converts set! (assignment) into boxed references on the heap.
 ; this makes SSA form a lot easier to achieve.
 
-; The output of assignment 2:
+; The output of `desugar`:
+;
 ; e ::= (let ([x e] ...) e)
 ;     | (lambda (x ...) e)
 ;     | (lambda x e)

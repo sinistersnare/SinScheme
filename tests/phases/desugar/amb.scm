@@ -1,5 +1,3 @@
-
-
 (letrec ([ccstack '()]
          [fail (lambda () 
                  (if (null? ccstack)
@@ -17,14 +15,9 @@
                                       (set! lst (cdr lst))
                                       (set! ccstack (cons cc ccstack))
                                       head)))))])
-  
   (let ([a (amb '(2 3 4 5))]
         [b (amb '(2 3 4 5 6))]
         [c (amb '(2 3 4 5))])
     (begin
-      
       (assert (= (+ (* a a) (* b b)) (* c c)))
-
       (list 'solution a b c))))
-
-

@@ -39,7 +39,9 @@
 
 ;; End actual LLVM emitter code.
 
-(define clang++-path (path->string (find-executable-path "clang++"))) ; let's hope its in the PATH lol
+;(define clang++-path (path->string (find-executable-path "clang++"))) ; let's hope its in the PATH lol
+(define clang++-path "/usr/lib/llvm-14/bin/clang")
+
 
 (define (gen-build-file name extension)
   (unless (directory-exists? "build") (make-directory "build"))

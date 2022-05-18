@@ -180,6 +180,18 @@ SinObj* closure_alloc(const s64 amt_freevars, void* fptr) {
     return ret;
 }
 
+/// When creating a closure, we need to store the function's free variables into the environment.
+/// This takes the closure, the value of the free variable, and the position
+/// of the variable in the environment, and places it into the closure.
+void closure_place_freevar(SinObj* clo, SinObj* freevar, s64 pos) {
+    // unwrap handles asserting
+    SinObj* clo_obj = unwrap_clo(clo, "closure_place_freevar");
+
+    SinObj* vec = reinterpret_cast<SinObj*>(clo_obj[1].valueptr);
+    SinObj* pos_obj = const_init_int(pos);
+
+    prim_vector_45set_33(vec, pos_obj, freevar);
+}
 
 /// Returns a void pointer describing the env part of the closure
 /// This cant be more specific, as when the closure is actually
@@ -421,8 +433,7 @@ char* unwrap_sym(SinObj* sym_obj, const char* fn) {
     return reinterpret_cast<char*>(sym_obj->valueptr);
 }
 
-// TODO: Have this returning a sizeof(bool) int, and use that instead of wasting so much space
-u64 is_truthy_value(SinObj* obj) {
+bool is_truthy_value(SinObj* obj) {
     return (obj->type == Bool && (unwrap_bool(obj, "is_truthy_value") == false))
             ? false : true;
 }

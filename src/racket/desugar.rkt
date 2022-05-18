@@ -90,8 +90,6 @@
 
 ;;;;;;;;;;;;;;;; END UTILITY ITEMS ;;;;;;;;;;;;;;;;
 
-;; TODO support vector literals (see old bottom of old desugar-aux)
-
 (define (desugar e)
   #;(pretty-display e)
   (simplify-ir (desugar-aux (wrap e) (initial-env))))
@@ -139,7 +137,6 @@
 ; to allow shadowing of primitives and special forms.
 ; We use %%SPECIAL to denote that the special form SPECIAL
 ; is using the 'true' meaning, not the possibly overridden meaning.
-; (its a function so I can make forward-definitions in it)
 (define (initial-env)
   (let*
       ; the base is the set of symbols that a user can overwrite.
@@ -461,6 +458,10 @@
                                                   (f (car xs)
                                                      (foldr f acc (cdr xs)))))))]
         [length (Z (λ (length) (λ (xs) (if (null? xs) '0 (+ '1 (length (cdr xs)))))))]
+        [take (Z (λ (take) (λ (xs n) (if (= n '0) '()
+                                         (if (null? xs) '()
+                                             (cons (car xs)
+                                                   (take (cdr xs) (- n '1))))))))]
         [drop-right (λ (xs n) (take xs (- (length xs) n)))]
         [last (λ (xs) (%%foldl1 (λ (x y) x) '() xs))]
         ; these are the variable arity versions of these.
@@ -490,10 +491,6 @@
                                  [vs (%%map1 car lsts)]
                                  [acc+ (apply f (%%foldr1 cons (cons acc '()) vs))])
                             (apply foldl (cons f (cons acc+ lsts+))))))))]
-        [take (Z (λ (take) (λ (xs n) (if (= n '0) '()
-                                         (if (null? xs) '()
-                                             (cons (car xs)
-                                                   (take (cdr xs) (- n '1))))))))]
         ; assuming comparator operators are binary...!
         [>= (λ (a b) (prim not (< a b)))]
         [> (λ (a b) (prim not (<= a b)))]
@@ -628,9 +625,9 @@
       (list v n) env
       (λ (bs)
         (match-define `(,vbnd ,nbnd) bs)
-        `(if (prim > (prim + '1 ,nbnd) (prim vector-length ,vbnd))
-             ,(desugar-aux '(%%raise (%%quote vector-out-of-bounds)) env)
-             (prim vector-ref ,vbnd ,nbnd))))]
+        `(if (prim <= (prim + '1 ,nbnd) (prim vector-length ,vbnd))
+             (prim vector-ref ,vbnd ,nbnd)
+             ,(desugar-aux '(%%raise (%%quote vector-out-of-bounds)) env))))]
     [_ (desugar-aux '(%%raise (%%quote vector-ref-takes-2-arguments)) env)]))
 
 (define (protect-prim-vector-set! es env)
@@ -640,9 +637,9 @@
       (list v n x) env
       (λ (bs)
         (match-define `(,vbnd ,nbnd ,xbnd) bs)
-        `(if (prim > (prim + '1 ,nbnd) (prim vector-length ,vbnd))
-             ,(desugar-aux '(%%raise (%%quote vector-out-of-bounds)) env)
-             (prim vector-set! ,vbnd ,nbnd ,xbnd))))]
+        `(if (prim <= (prim + '1 ,nbnd) (prim vector-length ,vbnd))
+             (%%prim vector-set! ,vbnd ,nbnd ,xbnd)
+             ,(desugar-aux '(%%raise (%%quote vector-out-of-bounds)) env))))]
     [_ (desugar-aux '(%%raise (%%quote vector-set!-takes-3-arguments)) env)]))
 
 ; used to get the args of a list to call the prim itself
@@ -663,7 +660,6 @@
 
 (define (protect-applprim-/ elist env)
   ; TODO! Need to write some input-grammar code that checks the whole (cdr list) for 0
-  ; probably will have to pull out the Y-Combinator...?
   ; once done, the knowledge will make it easier to do other protections.
   `(apply-prim / ,(desugar-aux elist env)))
 
@@ -724,5 +720,4 @@
       [`(apply-prim ,op ,ex) `(apply-prim ,op ,(T ex))]
       [`(,ef ,es ...) (map T (cons ef es))]
       [(? symbol? x) x]))
-  (identity e))
-
+  (T e))

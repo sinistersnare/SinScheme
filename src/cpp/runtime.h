@@ -138,7 +138,7 @@ u64 _get_vector_length(SinObj*);
 SinObj* hash_ref_impl(SinObj*, SinObj*, SinObj*);
 const char* get_type_name(SinType);
 void _get_both(SinObj*, SinObj*, SinObj*);
-u64 is_truthy_value(SinObj*);
+bool is_truthy_value(SinObj*);
 SinObj* prim_print_aux(SinObj*);
 SinObj* make_predicate(bool b);
 
@@ -148,6 +148,7 @@ SinRecord* split_record(SinRecord* old_stack_record, SinObj** new_segment_base,
 SinObj* make_continuation_closure(SinRecord* cont, void* cont_func_loc);
 SinObj* closure_alloc(const s64 amt_freevars, void* fptr);
 
+void closure_place_freevar(SinObj* clo, SinObj* freevar, s64 pos);
 void* closure_get_env_part(SinObj* clo);
 void* closure_get_fn_part(SinObj* clo);
 SinObj* closure_env_get(SinObj* clo, s64 pos);
