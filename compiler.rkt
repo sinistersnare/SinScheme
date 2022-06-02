@@ -14,7 +14,7 @@
 ; (require (only-in "src/racket/cps-llvm-convert.rkt" llvm-convert))
 (require (only-in "src/racket/ssa-anf.rkt" anf-convert))
 (require (only-in "src/racket/ssa-closure-convert.rkt" closure-convert))
-(require (only-in "src/racket/ssa-llvm-segmented.rkt" lir-convert llvm-convert))
+(require (only-in "src/racket/ssa-llvm-segmented.rkt" llvm-convert))
 
 (require (only-in "src/racket/utils.rkt" read-begin))
 
@@ -35,12 +35,16 @@
 ; Takes a valid SinScheme program (a symbol, or an S-Expression) and compiles it to LLVM IR code.
 (define (compile-code scm)
   (~> scm top-level desugar assignment-convert alphatize anf-convert
-      closure-convert lir-convert llvm-convert))
+      closure-convert llvm-convert))
 
 ;; End actual LLVM emitter code.
 
 ;(define clang++-path (path->string (find-executable-path "clang++"))) ; let's hope its in the PATH lol
-(define clang++-path "/usr/lib/llvm-14/bin/clang")
+;;; TODO: THIS SHOULD BE SET BY AN ENV-VAR??? OR SOMETHING???? THIS MUST BE THE SINSCHEME LLVM!
+(define llvm-bin-path (build-path "/" "usr" "lib" "llvm-14" "bin"))
+#;(define llvm-bin-path (build-path (find-system-path 'home-dir) "code" "llvm" "build" "bin"))
+(define clang++-path (path->string (build-path llvm-bin-path "clang++")))
+(define opt-path (path->string (build-path llvm-bin-path "opt")))
 
 
 (define (gen-build-file name extension)
@@ -52,6 +56,7 @@
                  ; "-O2" ; TODO:  use llvm's `opt` instead of clang optimizations.
                  "-DGC_DEBUG"
                  "-Wall"
+                 ;"-Xclang" "-no-opaque-pointers"
                  "-Weverything"
                  "-Wno-unused-command-line-argument"
                  "-Wno-c++98-compat" ; so i can use nullptr unmolested.

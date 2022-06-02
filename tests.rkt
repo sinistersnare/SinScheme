@@ -10,8 +10,7 @@
                   test-closure-convert
                   eval-proc
                   read-begin
-                  eval-top-level
-                  lir-exp?))
+                  eval-top-level))
 
 (require (only-in "src/racket/desugar.rkt" desugar))
 
@@ -20,7 +19,7 @@
 
 (require (only-in "src/racket/ssa-anf.rkt" anf-convert))
 (require (only-in "src/racket/ssa-closure-convert.rkt" closure-convert))
-(require (only-in "src/racket/ssa-llvm-segmented.rkt" lir-convert llvm-convert))
+(require (only-in "src/racket/ssa-llvm-segmented.rkt" llvm-convert))
 
 (require (only-in "compiler.rkt" gen-build-file scm->exe llvm->exe))
 
@@ -43,27 +42,19 @@
   (fin compiled-value interpreted-value))
 
 ;; Takes closure converted proc-exp?
-(define (test-llvm-convert lir-convert llvm-convert prog)
+(define (test-llvm-convert llvm-convert prog)
   (define interpreted-val (~a (eval-proc prog)))
   ;(pretty-display `(proc-val ,interpreted-val))
-  (define lir (lir-convert prog))
-  (if (not (lir-exp? lir))
-      (begin
-        (displayln "Output from lir-convert does not fit lir-exp? grammar.")
-        #f)
-      (begin
-        (let ([llvm (llvm-convert lir)]
-              [exe-name (gen-build-file (gensym 'testllvm) ".x")])
-          (llvm->exe llvm exe-name)
-          ; if this function gets any more complicated we should refactor and
-          ; share code with the compile-and-run function.
-          (define compiled-val
-            (string-normalize-spaces (with-output-to-string
-                                       (λ () (system (format "./~a" exe-name))))))
-          (define success (equal? interpreted-val compiled-val))
-          (unless success (displayln (format "llvm:'~a'\ninterpreted:'~a'\n"
-                                             compiled-val interpreted-val)))
-          success))))
+  (define llvm (llvm-convert prog))
+  (define exe-name (gen-build-file (gensym 'testllvm) ".x"))
+  (llvm->exe llvm exe-name)
+  ; If this function gets any more complicated we should refactor and
+  ; share code with the compile-and-run function.
+  (define compiled-val
+    (string-normalize-spaces (with-output-to-string (λ () (system (format "./~a" exe-name))))))
+  (define success (equal? interpreted-val compiled-val))
+  (unless success (displayln (format "llvm: '~a'\ninterpreted: '~a'" compiled-val interpreted-val)))
+  success)
 
 ; Single test creation.
 
@@ -105,7 +96,7 @@
   (new-phase-test p (λ (c) (test-alphatize assignment-convert alphatize c))))
 (define (new-anf-test p) (new-phase-test p (λ (c) (test-anf-convert anf-convert c))))
 (define (new-clo-test p) (new-phase-test p (λ (c) (test-closure-convert closure-convert c))))
-(define (new-llvm-test p) (new-phase-test p (λ (c) (test-llvm-convert lir-convert llvm-convert c))))
+(define (new-llvm-test p) (new-phase-test p (λ (c) (test-llvm-convert llvm-convert c))))
 ;; (define (new-llvm-test p) (new-phase-test p (λ (c) (test-llvm-convert llvm-convert c))))
 
 ; test suite creation

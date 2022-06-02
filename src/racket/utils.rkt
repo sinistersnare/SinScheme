@@ -483,5 +483,4 @@
                            ,@(map (match-lambda [`(proc (,xname ,xclo ,xs) ,bdy)
                                                  `(define (,xname ,xclo ,xs) ,bdy)])
                                   procs)
-                           (main '() '())))))))))
-
+                           (__main '() '())))))))))

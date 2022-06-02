@@ -5,7 +5,7 @@
     (prim + g h)))
 
 ((proc
-   (main mainenv4964814 mainargs4964815)
+   (__main mainenv4964814 mainargs4964815)
    (let ((anf-bind4962025 (make-closure clo4964813)))
      (let ((anf-datum4962026 '5))
        (let ((args4964807$anf-bind4962025$0 '()))

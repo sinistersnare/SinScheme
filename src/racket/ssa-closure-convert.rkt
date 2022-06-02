@@ -232,7 +232,6 @@
       [r (conv-r r)]))
   (match-define `(,main-body ,free ,procs) (conv-e ssa))
   (when (not (set-empty? free)) (displayln `(TOPLEVEL-FREE-VARS: ,free)))
-  `((proc (main ,(gensym 'mainenv) ,(gensym 'mainargs)) ,main-body) ,@procs))
-
+  `((proc (__main ,(gensym 'mainenv) ,(gensym 'mainargs)) ,main-body) ,@procs))
 
 (define (closure-convert anf) (ssa-closure-convert (partition-grammar (unify-lambdas anf))))

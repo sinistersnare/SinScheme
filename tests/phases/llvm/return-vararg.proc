@@ -1,6 +1,6 @@
 ; The basic program is ((lambda e e) 1 2 3)
 
-((proc (main mainenv mainargs)
+((proc (__main mainenv mainargs)
     (let ((clo (make-closure varid)))
       (let ((arg '3))
         (let ((nil '()))

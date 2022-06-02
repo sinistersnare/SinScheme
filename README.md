@@ -1,7 +1,8 @@
 # Sin's Scheme Compiler #
 
-Hi! This is a scheme compiler that I wrote for my Compilers Class:
-[CMSC 430](https://www.cs.umd.edu/class/fall2017/cmsc430/)
+Hi! This is a scheme compiler that I originally wrote for my undergrad
+Compilers Class: [CMSC 430](https://www.cs.umd.edu/class/fall2017/cmsc430/)
+and then kept working on!
 
 This is a mostly working compiler from some non-standards compliant Scheme to LLVM IR.
 For a comprehensive idea on how this works (from scheme to llvm ir),
@@ -15,32 +16,6 @@ Start by installing the threading library in Racket:
 ```bash
 $ raco pkg install threading
 ```
-
-Then install The Boehm GC, which is what the runtime uses:
-
-### MacOS ###
-I found it on homebrew:
-
-```bash
-$ brew install libgc
-```
-
-The installed files should be somehwere like `/usr/local/Cellar/bdw-gc/`. Make sure you
-set the locations correctly as noted below.
-
-### Linux ###
-
-I installed BoehmGC on linux from [their page](https://www.hboehm.info/gc/simple_example.html) (downloading the .tar.gz from their GitHub page),
-but my configure command was:
-
-```bash
-$ ./configure --prefix=/usr/local/ --disable-threads --enable-static
-```
-
-***Note***: you probably need to edit `compiler.rkt` to have the correct libgc path.
-You will see the relevant comment.
-
-If you have easy instructions on how to do it for your platform, please send a PR!!!
 
 ## Running The Compiler ##
 
@@ -81,6 +56,8 @@ We also have a tests.rkt file, you can interact with as so:
 `$ racket tests.rkt TESTNAME` will run the test TESTNAME
 
 `$ racket tests.rkt all` will run all tests.
+
+`$ racket tests.rkt <phase>` will run tests for a specific phase.
 
 There is currently something going on with the order tests,
 making it consume about a Gig of memory for some reason,
@@ -142,3 +119,18 @@ and modify the code. If you do use this, please say hi :)
 
 We currently use the Boehm-GC, and code by Thomas Gilray,
 (particularly `utils.rkt` and `desugar.rkt`). I have provided license information in `LICENSE.md`
+
+
+### Custom LLVM ###
+
+***This is not needed! No Custom LLVM needed!!!***
+
+But Im gonna leave this here in case I ever need to compile a custom LLVM :)
+
+```
+$ cd ~/code/llvm-project/
+cmake -S llvm -B build -G Ninja -DLLVM_USE_SPLIT_DWARF=On -DLLVM_USE_LINKER=lld -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_C_COMPILER=clang -DCMAKE_BUILD_TYPE=Debug -DLLVM_APPEND_VC_REV=Off '-DCMAKE_CXX_FLAGS_DEBUG=-g -O1' '-DCMAKE_CXX_FLAGS_DEBUG=-g -O1' -DLLVM_ENABLE_PROJECTS=clang
+cmake --build build
+```
+
+

@@ -80,6 +80,8 @@ typedef int64_t s64;
 typedef uint32_t u32;
 typedef int32_t s32;
 
+typedef void (*SinFunc)();
+
 typedef enum { Void=0, Null, Bool
              , Closure, Cons, Int
              , Str, Sym, Vector
@@ -102,7 +104,7 @@ typedef struct SinRecord {
     /// when reinstantiating this record.
     s64 return_fp_offset;
     /// Where we go to in the code-stream
-    void* return_address;
+    SinFunc return_address;
 } SinRecord;
 
 SinObj* alloc(const u64 amt);
@@ -144,26 +146,25 @@ SinObj* make_predicate(bool b);
 
 SinRecord* make_record(SinRecord* cur_stack_record, SinObj*** spr);
 SinRecord* split_record(SinRecord* old_stack_record, SinObj** new_segment_base,
-                        s64 cutoff_slots, s64 ret_fp_slots, void* ret_addr);
-SinObj* make_continuation_closure(SinRecord* cont, void* cont_func_loc);
-SinObj* closure_alloc(const s64 amt_freevars, void* fptr);
+                        s64 cutoff_slots, s64 ret_fp_slots, SinFunc ret_addr);
+SinObj* make_continuation_closure(SinRecord* cont, SinFunc cont_func_loc);
+SinObj* closure_alloc(const s64 amt_freevars, SinFunc fptr);
 
 void closure_place_freevar(SinObj* clo, SinObj* freevar, s64 pos);
 void* closure_get_env_part(SinObj* clo);
-void* closure_get_fn_part(SinObj* clo);
+SinFunc closure_get_fn_part(SinObj* clo);
 SinObj* closure_env_get(SinObj* clo, s64 pos);
-void* handle_continuation_function(SinRecord** srr, SinObj*** fpr,
-                                   SinObj*** spr, SinObj** retr);
+SinFunc handle_continuation_function(SinRecord** srr, SinObj*** fpr,
+                                     SinObj*** spr, SinObj** retr);
 
 bool check_for_overflow(SinObj*** fpr, SinObj*** spr, s64 caller_slots);
-void* handle_underflow(SinRecord** srr, SinObj*** fpr, SinObj*** spr);
+SinFunc handle_underflow(SinRecord** srr, SinObj*** fpr, SinObj*** spr);
 void handle_overflow(SinRecord** srr, SinObj*** fpr, SinObj*** spr,
-                     void* underflow_loc, s64 num_slots_in_overflower);
+                     SinFunc underflow_loc, s64 num_slots_in_overflower);
 bool callcc_at_base(SinRecord** srr, SinObj*** fpr);
 
 
 void start_runtime(SinRecord** srr, SinObj*** fpr, SinObj*** spr);
-
 
 // Prims //
 

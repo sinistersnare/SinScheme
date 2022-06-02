@@ -18,16 +18,23 @@ extern "C" {
 SinObj* map_to_sin(Map* m);
 Map* unwrap_hash(SinObj* hash_obj, const char* fn);
 
+
 void debug_output_registers(SinRecord** srr, SinObj*** fpr, SinObj*** spr, SinObj** retr) {
     // Used to help me debug sometimes :)
-    // call like:
-    //   call void @debug_output_registers(%struct.SinRecord** @srr, %struct.SinObj*** @fpr, %struct.SinObj*** @spr, %struct.SinObj** @retr)
+    // Use with DEBUG command in the llvmir-ir.
+    // Or directly with:
+    // call void @debug_output_registers(%struct.SinRecord** @srr, %struct.SinObj*** @fpr, %struct.SinObj*** @spr, %struct.SinObj** @retr)
     printf("Register Values:\n");
     printf("srr:`%p`,fpr:`%p`,spr:`%p`,retr:`%p`\n",
             reinterpret_cast<void*>(*srr),
             reinterpret_cast<void*>(*fpr),
             reinterpret_cast<void*>(*spr),
             reinterpret_cast<void*>(*retr));
+    if (*retr != nullptr) {
+        printf("Current @retr: ");
+        prim_display(*retr);
+        printf("\n");
+    }
 }
 
 /// Alloc an amount of SinObjs.
@@ -122,11 +129,11 @@ SinRecord* make_record(SinRecord* cur_stack_record, SinObj*** spr) {
  * new_segment_base is the base pointer of the new segment
  * cutoff_slots, #slots (from old base) in the old part of the record
  *               (the new size of the old record)
- * ret_fp_slots is the index of the fp in the old record when reinstantiating.
+ * ret_fp_slots is the number of slots from the top of the stack to get to the fp.
  * ret_addr is the location in the code stream to return to when reinstantiating.
  */
 SinRecord* split_record(SinRecord* old_stack_record, SinObj** new_segment_base,
-                        s64 cutoff_slots, s64 ret_fp_slots, void* ret_addr) {
+                        s64 cutoff_slots, s64 ret_fp_slots, SinFunc ret_addr) {
     SinRecord* new_record = reinterpret_cast<SinRecord*>(malloc(sizeof(SinRecord)));
     new_record->stack = new_segment_base;
     new_record->size = old_stack_record->size - cutoff_slots;
@@ -137,12 +144,12 @@ SinRecord* split_record(SinRecord* old_stack_record, SinObj** new_segment_base,
     return new_record;
 }
 
-SinObj* make_continuation_closure(SinRecord* cont, void* cont_func_loc) {
+SinObj* make_continuation_closure(SinRecord* cont, SinFunc cont_func_loc) {
     SinObj* clo = alloc(2);
     SinObj lam_part, env_part;
 
     lam_part.type = Other;
-    lam_part.valueptr = cont_func_loc;
+    lam_part.valueptr = reinterpret_cast<void*>(cont_func_loc);
 
     env_part.type = Continuation;
     env_part.valueptr = reinterpret_cast<void*>(cont);
@@ -160,7 +167,7 @@ SinObj* make_continuation_closure(SinRecord* cont, void* cont_func_loc) {
 /// It is 2 SinObj laid out besides eachother.
 /// The first SinObj (index 0) is an Other type and it has a ptrvalue of the function pointer
 /// The second SinObj (index 1) is the vector that holds the environment (free variables).
-SinObj* closure_alloc(const s64 amt_freevars, void* fptr) {
+SinObj* closure_alloc(const s64 amt_freevars, SinFunc fptr) {
     SinObj* clo_obj = alloc(2);
     SinObj lam_part, env_part;
 
@@ -201,32 +208,12 @@ void* closure_get_env_part(SinObj* clo) {
     return clo_obj[1].valueptr;
 }
 
-void* closure_get_fn_part(SinObj* clo) {
+SinFunc closure_get_fn_part(SinObj* clo) {
     SinObj* clo_obj = unwrap_clo(clo, "closure_get_fn_part");
-    return clo_obj[0].valueptr;
-}
-
-void* handle_underflow(SinRecord** srr, SinObj*** fpr, SinObj*** spr) {
-    SinRecord* cur = *srr;
-    SinRecord* next = cur->next;
-    cur->next = next->next;
-    s64 n = cur->size;
-    s64 m = next->size;
-    s64 o = next->return_fp_offset;
-    void* ret_addr = next->return_address;
-    if (m >= n) {
-        // cur->stack may not be the root of the allocation. So we can't free it.
-        // TODO: garbage collection (:
-        cur->stack = reinterpret_cast<SinObj**>(calloc(STACK_SIZE, sizeof(SinObj*)));
-        *spr = cur->stack + STACK_SIZE - 100; // TODO: is this corrrect (:
-    }
-    memcpy(cur->stack, next->stack, static_cast<size_t>(m) * 8);
-    *fpr = &cur->stack[o];
-    return ret_addr;
+    return reinterpret_cast<SinFunc>(clo_obj[0].valueptr);
 }
 
 // returns true if we are safe, false if we will overflow.
-// TODO: srr parameter not needed.
 bool check_for_overflow(SinObj*** fpr, SinObj*** spr, s64 caller_slots) {
     return reinterpret_cast<s64>(*fpr + caller_slots) < reinterpret_cast<s64>(*spr);
 }
@@ -236,13 +223,13 @@ bool callcc_at_base(SinRecord** srr, SinObj*** fpr) {
 }
 
 void handle_overflow(SinRecord** srr, SinObj*** fpr, SinObj*** spr,
-                     void* underflow_loc, s64 num_slots_in_overflower) {
+                     SinFunc underflow_loc, s64 num_slots_in_overflower) {
     s64 amt_to_descend = 0;
     s64 amt_to_copy = num_slots_in_overflower;
     bool copy_entire = false;
     SinObj** descent = *fpr;
     for (int i=0; i < 4; i++) {
-        amt_to_descend = reinterpret_cast<s64>(descent[1]);
+        amt_to_descend = reinterpret_cast<s64>(descent[1]); // get size slot.
         if (amt_to_descend == -1) {
             copy_entire = true;
             break;
@@ -265,10 +252,10 @@ void handle_overflow(SinRecord** srr, SinObj*** fpr, SinObj*** spr,
     } else {
         SinRecord* full = *srr;
         SinRecord* empty_record = make_record(full, spr);
-        full->return_address = reinterpret_cast<void*>(descent[0]);
+        full->return_address = reinterpret_cast<SinFunc>(descent[0]);
         full->size = (reinterpret_cast<s64>(descent) -
                       reinterpret_cast<s64>(full->stack)) / 8;
-        full->return_fp_offset = full->size - amt_to_descend;
+        full->return_fp_offset = reinterpret_cast<s64>(descent[1]); // get size slot.
         memcpy(empty_record->stack, descent, static_cast<size_t>(amt_to_copy) * 8);
         empty_record->stack[0] = reinterpret_cast<SinObj*>(underflow_loc);
         empty_record->stack[1] = reinterpret_cast<SinObj*>(-1);
@@ -277,22 +264,43 @@ void handle_overflow(SinRecord** srr, SinObj*** fpr, SinObj*** spr,
     }
 }
 
+SinFunc handle_underflow(SinRecord** srr, SinObj*** fpr, SinObj*** spr) {
+    SinRecord* cur = *srr;
+    SinRecord* next = cur->next;
+    cur->next = next->next;
+    s64 n = cur->size;
+    s64 m = next->size;
+    s64 o = next->return_fp_offset;
+    SinFunc ret_addr = next->return_address;
+    if (m >= n) {
+        // cur->stack may not be the root of the allocation. So we can't free it.
+        // TODO: garbage collection (:
+        cur->stack = reinterpret_cast<SinObj**>(calloc(STACK_SIZE, sizeof(SinObj*)));
+        *spr = cur->stack + STACK_SIZE - 100; // TODO: is this corrrect (:
+    }
+    memcpy(cur->stack, next->stack, static_cast<size_t>(m) * 8);
+    *fpr = &cur->stack[m - o];
+    return ret_addr;
+}
+
 /// This is called when something like `(k x)` happens
 /// Where `k` is a continuation object.
-void* handle_continuation_function(SinRecord** srr, SinObj*** fpr,
-                                   SinObj*** spr, SinObj** retr) {
+SinFunc handle_continuation_function(SinRecord** srr, SinObj*** fpr,
+                                     SinObj*** spr, SinObj** retr) {
     SinObj** cur_fp = *fpr;
-    // TODO: magic numbers, maybe make these arguments?
-    SinObj* clo = cur_fp[2];
-    SinObj* arglist = cur_fp[3];
+    // TODO: magic numbers for cur_fp indexing, maybe make these arguments?
+
     // continuations take exactly 1 arg.
+    SinObj* arglist = cur_fp[3];
     SinObj* arg = prim_car(arglist);
+    *retr = arg;
 
     // Get the continuation parts
+    SinObj* clo = cur_fp[2];
     SinRecord* cont_record = reinterpret_cast<SinRecord*>(closure_get_env_part(clo));
     SinRecord* cur_record = *srr;
 
-    if (cont_record->size >= cur_record->size) {
+    if (cont_record->size + 3 >= cur_record->size) {
         // TODO: cant deallocate cur_record cause it may not be the root.
         //       SO MAKE A GC!
         // overflow will happen, need to reallocate.
@@ -304,11 +312,11 @@ void* handle_continuation_function(SinRecord** srr, SinObj*** fpr,
 
     memcpy(cur_record->stack, cont_record->stack, static_cast<size_t>(cont_record->size) * 8);
 
-    *retr = arg;
-    *fpr = &cur_record->stack[cont_record->return_fp_offset];
+    *fpr = &cur_record->stack[cont_record->size - cont_record->return_fp_offset];
 
     return cont_record->return_address;
 }
+
 
 void start_runtime(SinRecord** srr, SinObj*** fpr, SinObj*** spr) {
     // This will eventually also start the GC! Assuming I make a GC :)
