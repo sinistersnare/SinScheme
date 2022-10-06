@@ -1,0 +1,117 @@
+((proc
+   (__main mainenv5043975 mainargs5043976)
+   (let ((anf-datum5043927 '1))
+     (let ((anf-datum5043928 '1))
+       (let ((x (prim make-vector anf-datum5043927 anf-datum5043928)))
+         (let ((anf-datum5043929 '0))
+           (let ((anf-datum5043930 '0))
+             (let ((anf-bind5043931 (prim vector-ref x anf-datum5043930)))
+               (let ((anf-datum5043932 '3))
+                 (let ((anf-bind5043933 (prim * anf-bind5043931 anf-datum5043932)))
+                   (let ((anf-datum5043934 '1))
+                     (let ((anf-bind5043935 (prim + anf-bind5043933 anf-datum5043934)))
+                       (let ((a (prim vector-set! x anf-datum5043929 anf-bind5043935)))
+                         (let ((anf-datum5043936 '0))
+                           (let ((anf-bind5043937 (prim vector-ref x anf-datum5043936)))
+                             (let ((anf-datum5043938 '0))
+                               (let ((anf-datum5043939 '0))
+                                 (let ((anf-bind5043940 (prim vector-ref x anf-datum5043939)))
+                                   (let ((anf-datum5043941 '5))
+                                     (let ((anf-bind5043942 (prim * anf-bind5043940 anf-datum5043941)))
+                                       (let ((anf-datum5043943 '1))
+                                         (let ((anf-bind5043944 (prim + anf-bind5043942 anf-datum5043943)))
+                                           (let ((b (prim vector-set! x anf-datum5043938 anf-bind5043944)))
+                                             (let ((anf-datum5043945 '0))
+                                               (let ((anf-bind5043946 (prim vector-ref x anf-datum5043945)))
+                                                 (let ((anf-datum5043947 '0))
+                                                   (let ((anf-datum5043948 '0))
+                                                     (let ((anf-bind5043949 (prim vector-ref x anf-datum5043948)))
+                                                       (let ((anf-datum5043950 '2))
+                                                         (let ((anf-bind5043951
+                                                                (prim * anf-bind5043949 anf-datum5043950)))
+                                                           (let ((anf-datum5043952 '77))
+                                                             (let ((anf-bind5043953
+                                                                    (prim + anf-bind5043951 anf-datum5043952)))
+                                                               (let ((c
+                                                                      (prim
+                                                                       vector-set!
+                                                                       x
+                                                                       anf-datum5043947
+                                                                       anf-bind5043953)))
+                                                                 (let ((anf-datum5043954 '4))
+                                                                   (let ((anf-bind5043955 anf-datum5043954))
+                                                                     (let ((anf-datum5043956 '0))
+                                                                       (let ((anf-bind5043957
+                                                                              (prim vector-ref x anf-datum5043956)))
+                                                                         (let ((anf-datum5043958 '0))
+                                                                           (let ((anf-datum5043959 '0))
+                                                                             (let ((anf-bind5043960
+                                                                                    (prim
+                                                                                     vector-ref
+                                                                                     x
+                                                                                     anf-datum5043959)))
+                                                                               (let ((anf-datum5043961 '7))
+                                                                                 (let ((anf-bind5043962
+                                                                                        (prim
+                                                                                         *
+                                                                                         anf-bind5043960
+                                                                                         anf-datum5043961)))
+                                                                                   (let ((anf-datum5043963 '2))
+                                                                                     (let ((anf-bind5043964
+                                                                                            (prim
+                                                                                             +
+                                                                                             anf-bind5043962
+                                                                                             anf-datum5043963)))
+                                                                                       (let ((d
+                                                                                              (prim
+                                                                                               vector-set!
+                                                                                               x
+                                                                                               anf-datum5043958
+                                                                                               anf-bind5043964)))
+                                                                                         (let ((anf-bind5043965
+                                                                                                (make-closure
+                                                                                                 clo5043974)))
+                                                                                           (let ((anf-datum5043966
+                                                                                                  '0))
+                                                                                             (let ((args5043972$anf-bind5043965$0
+                                                                                                    '()))
+                                                                                               (let ((args5043972$anf-bind5043965$1
+                                                                                                      (prim
+                                                                                                       cons
+                                                                                                       anf-datum5043966
+                                                                                                       args5043972$anf-bind5043965$0)))
+                                                                                                 (let ((args5043972$anf-bind5043965$2
+                                                                                                        (prim
+                                                                                                         cons
+                                                                                                         x
+                                                                                                         args5043972$anf-bind5043965$1)))
+                                                                                                   (let ((anf-bind5043967
+                                                                                                          (clo-app
+                                                                                                           anf-bind5043965
+                                                                                                           args5043972$anf-bind5043965$2)))
+                                                                                                     (let ((anf-bind5043968
+                                                                                                            (apply-prim
+                                                                                                             vector-ref
+                                                                                                             anf-bind5043967)))
+                                                                                                       (let ((anf-bind5043969
+                                                                                                              (prim
+                                                                                                               +
+                                                                                                               anf-bind5043957
+                                                                                                               anf-bind5043968)))
+                                                                                                         (let ((anf-bind5043970
+                                                                                                                (prim
+                                                                                                                 +
+                                                                                                                 anf-bind5043955
+                                                                                                                 anf-bind5043969)))
+                                                                                                           (let ((anf-bind5043971
+                                                                                                                  (prim
+                                                                                                                   +
+                                                                                                                   anf-bind5043946
+                                                                                                                   anf-bind5043970)))
+                                                                                                             (let ((admin-toplevel-bnd5043973
+                                                                                                                    (prim
+                                                                                                                     +
+                                                                                                                     anf-bind5043937
+                                                                                                                     anf-bind5043971)))
+                                                                                                               admin-toplevel-bnd5043973)))))))))))))))))))))))))))))))))))))))))))))))))))))))
+  (proc (clo5043974 clo5043974_cloarg e) e))

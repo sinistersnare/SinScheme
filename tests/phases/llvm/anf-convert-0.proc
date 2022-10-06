@@ -1,0 +1,11 @@
+((proc
+  (__main mainenv4964351 mainargs4964352)
+  (let ((anf-datum4960545 '2))
+    (let ((a anf-datum4960545))
+      (let ((anf-datum4960546 '4))
+        (let ((c anf-datum4960546))
+          (let ((anf-datum4960547 '3))
+            (let ((anf-bind4960548 (prim + c c)))
+              (let ((b (prim + anf-datum4960547 anf-bind4960548)))
+                (let ((anf-bind4960549 (prim * a b)))
+                  (let ((admin-toplevel-bnd4964350 (prim + a anf-bind4960549))) admin-toplevel-bnd4964350)))))))))))

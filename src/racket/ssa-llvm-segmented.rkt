@@ -145,13 +145,13 @@
        (define goto-sub (gensym 'gotosub))
        (match-define (cons body-sub body-other) (lir-conv ebody procname nslots ret-goto))
        (cons `((jump ,goto-sub (clo-app ,xf ,xx)))
-             `((sub ,procname (,goto-sub ,nslots #t ,x) ,body-sub)
+             `((sub ,procname (,goto-sub ,nslots ,#t ,x) ,body-sub)
                ,@body-other))]
       [`(let ([,x (call/cc ,xf)]) ,ebody)
        (define goto-sub (gensym 'gotosub))
        (match-define (cons body-sub body-rest) (lir-conv ebody procname nslots ret-goto))
        (cons `((jump ,goto-sub (call/cc ,xf)))
-             `((sub ,procname (,goto-sub ,nslots #t ,x) ,body-sub)
+             `((sub ,procname (,goto-sub ,nslots ,#t ,x) ,body-sub)
                ,@body-rest))]
       [`(let ([,x ,l]) ,ebody)
        (match-define (cons conv subs) (lir-conv ebody procname nslots ret-goto))
@@ -196,7 +196,7 @@
         ;      so we cant return to the join point if that happens.
         `((if ,xc (label ,t) (label ,f))
           (label ,t) ,@here-t (label ,f) ,@here-f)
-        `((sub ,procname (,j ,nslots #f ,xb) ,body-sub-j)
+        `((sub ,procname (,j ,nslots ,#f ,xb) ,body-sub-j)
           ,@there-t
           ,@there-f
           ,@body-other-j))]))
@@ -204,6 +204,7 @@
   (foldl (λ (cloconv-proc all-procs)
            (match-define `(proc (,xprocname ,nslots ,xself ,xargs) ,e) cloconv-proc)
            (match-define (cons proc-body subs) (lir-conv e xprocname nslots #f))
+           ;(pretty-display `(nslots: ,xprocname ,nslots))
            `((proc (,xprocname ,nslots ,xself ,xargs) ,proc-body) ,@subs ,@all-procs))
          '() (brujin cloconv-program)))
 
@@ -382,7 +383,6 @@
     (match-define `(proc (,procname ,nslots 1 2) ,e) proc)
     (define fp (gensym 'prologue_fp))
     `((define-proc ,procname ,nslots)
-      ; TODO: I dont think we need a mapping for self ever. Only used by env-ref directly.
       ,@(layout-prologue fp nslots)
       ,@(foldr (λ (i acc) (append (layout-i i procname) acc)) '() e)
       END))
@@ -874,15 +874,3 @@
   (define lir (lir-convert proc))
   (llvm-conv lir))
 
-(define tiny '((proc (__main self args)
-                     (let ((ret '5))
-                       ret))))
-
-(define phi '((proc (__main mself margs)
-                    (let ([b '#t])
-                      (%%cond-bind f b
-                                   (let ([tret '5]) tret)
-                                   (let ([fret '7]) fret)
-                                   f)))))
-
-(define lir (lir-convert tiny))

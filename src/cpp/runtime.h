@@ -131,7 +131,7 @@ u64 unwrap_bool(SinObj*, const char*);
 void _get_both(SinObj*, SinObj*, SinObj*);
 
 // utility
-void debug_output_registers(SinRecord** srr, SinObj*** fpr, SinObj*** spr, SinObj** retr);
+void debug_output_registers(SinRecord** srr, SinObj*** fpr, SinObj*** spr, SinObj** retr, s64 n);
 int eq_helper(SinObj*, SinObj*);
 int cons_eq_helper(SinObj* a, SinObj* b);
 int vec_eq_helper(SinObj* a, SinObj* b);

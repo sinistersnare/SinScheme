@@ -1,15 +1,13 @@
-
-
 (let ([x (prim make-vector '1 '1)])
   (prim + (let ([a (prim vector-set! x '0 (prim + (prim * (prim vector-ref x '0) '3) '1))])
                (prim vector-ref x '0))
-          (let ([b (prim vector-set! x '0 (prim + (prim * (prim vector-ref x '0) '5) '1))])
-               (prim vector-ref x '0))
-          (let ([c (prim vector-set! x '0 (prim + (prim * (prim vector-ref x '0) '2) '77))])
-               '4)
-          (prim + (prim vector-ref x '0)
-                  (let ([d (prim vector-set! x '0 (prim + (prim * (prim vector-ref x '0) '7) '2))])
-                       (apply-prim vector-ref ((lambda e e) x '0))))))
+          (prim + (let ([b (prim vector-set! x '0 (prim + (prim * (prim vector-ref x '0) '5) '1))])
+                    (prim vector-ref x '0))
+                  (prim + (let ([c (prim vector-set! x '0 (prim + (prim * (prim vector-ref x '0) '2) '77))])
+                            '4)
+                           (prim + (prim vector-ref x '0)
+                                   (let ([d (prim vector-set! x '0 (prim + (prim * (prim vector-ref x '0) '7) '2))])
+                                     (apply-prim vector-ref ((lambda e e) x '0))))))))
 
 
 

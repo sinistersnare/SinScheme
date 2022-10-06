@@ -19,11 +19,12 @@ SinObj* map_to_sin(Map* m);
 Map* unwrap_hash(SinObj* hash_obj, const char* fn);
 
 
-void debug_output_registers(SinRecord** srr, SinObj*** fpr, SinObj*** spr, SinObj** retr) {
+void debug_output_registers(SinRecord** srr, SinObj*** fpr, SinObj*** spr, SinObj** retr, s64 n) {
     // Used to help me debug sometimes :)
     // Use with DEBUG command in the llvmir-ir.
     // Or directly with:
-    // call void @debug_output_registers(%struct.SinRecord** @srr, %struct.SinObj*** @fpr, %struct.SinObj*** @spr, %struct.SinObj** @retr)
+    // call void @debug_output_registers(%struct.SinRecord** @srr, %struct.SinObj*** @fpr, %struct.SinObj*** @spr, %struct.SinObj** @retr, i64 0)
+    printf("Debug number: %ld\n", n);
     printf("Register Values:\n");
     printf("srr:`%p`,fpr:`%p`,spr:`%p`,retr:`%p`\n",
             reinterpret_cast<void*>(*srr),
